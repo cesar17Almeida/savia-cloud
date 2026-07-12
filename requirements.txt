@@ -1,6 +1,8 @@
 # savia-cloud -- Python 3.11+
 Flask>=3.0,<4.0
 requests>=2.31,<3.0
+SQLAlchemy>=2.0,<3.0
+Werkzeug>=3.0,<4.0
 python-dotenv>=1.0,<2.0
 
 # dev / tests
