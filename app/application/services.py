@@ -1,81 +1,376 @@
 """Use cases: orchestrate domain + ports. No framework, no I/O details."""
 from __future__ import annotations
 
+import secrets
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 from ..adapters.ttn import codec
-from ..domain.models import DownlinkCommand, SignalReading, StationLink, Uplink
-from ..domain.ports import ForecastPort, StationRepository, TtnPort
+from ..domain.models import (
+    DownlinkCommand,
+    Forecast,
+    Session,
+    SoilReading,
+    Station,
+    User,
+)
+from ..domain.ports import (
+    DownlinkLogRepository,
+    ForecastPort,
+    ForecastRepository,
+    InferencePort,
+    ReadingRepository,
+    SessionRepository,
+    StationRepository,
+    TtnPort,
+    UserRepository,
+)
+from .errors import (
+    EmailTaken,
+    Forbidden,
+    InsufficientData,
+    InvalidCredentials,
+    NotFound,
+    StationClaimed,
+    Unauthorized,
+)
 
 # FPort the station uses (mirror savia_c LORA_FPORT).
 FPORT = 8
 
+HOUR_S = 3600
+PAST_STEPS = 48
+FUTURE_STEPS = 24
+MAX_SOIL_GAP_H = 6              # >6 contiguous missing soil hours -> refuse
+SESSION_TTL_S = 30 * 86400     # bearer token lifetime: 30 days
+
+
+def _now_s() -> int:
+    return int(time.time())
+
+
+# --- LSTM window builder (pure) ----------------------------------------------
+
+def _locf(values: list[float | None]) -> list[float]:
+    """Fill gaps last-observation-carried-forward; leading gap back-filled from the
+    first known sample. Raises InsufficientData if the series is entirely empty."""
+    first = next((i for i, v in enumerate(values) if v is not None), None)
+    if first is None:
+        raise InsufficientData("soil series has no data in the window")
+    out = [values[first]] * (first + 1)
+    for v in values[first + 1:]:
+        out.append(out[-1] if v is None else v)
+    return out
+
+
+def build_lstm_window(
+    readings: list[SoilReading],
+    forecast: Forecast,
+    now_s: int,
+) -> tuple[list[float], list[float], list[float], list[float]]:
+    """Assemble (ta, hs10, hs30, future_ta) for the 48 h window ending at the hour
+    of now_s. TA gaps are filled from the Open-Meteo past; soil gaps LOCF; a
+    contiguous soil gap longer than MAX_SOIL_GAP_H raises InsufficientData."""
+    latest_hour = now_s - (now_s % HOUR_S)
+    hours = [latest_hour - (PAST_STEPS - 1 - i) * HOUR_S for i in range(PAST_STEPS)]
+    by_hour = {r.ts_hour_s: r for r in readings}
+
+    ta_raw: list[float | None] = []
+    hs10_raw: list[float | None] = []
+    hs30_raw: list[float | None] = []
+    soil_present: list[bool] = []
+    for i, h in enumerate(hours):
+        r = by_hour.get(h)
+        hs10_raw.append(r.hs10 if r else None)
+        hs30_raw.append(r.hs30 if r else None)
+        soil_present.append(bool(r and (r.hs10 is not None or r.hs30 is not None)))
+        # TA prefers the station's own reading, else the Open-Meteo past bucket.
+        if r and r.ta is not None:
+            ta_raw.append(r.ta)
+        else:
+            ta_raw.append(forecast.past_ta[i] if i < len(forecast.past_ta) else None)
+
+    gap = worst = 0
+    for present in soil_present:
+        gap = 0 if present else gap + 1
+        worst = max(worst, gap)
+    if worst > MAX_SOIL_GAP_H:
+        raise InsufficientData(f"soil gap of {worst} h exceeds {MAX_SOIL_GAP_H} h")
+
+    ta = _locf(ta_raw)
+    hs10 = _locf(hs10_raw)
+    hs30 = _locf(hs30_raw)
+    future_ta = list(forecast.future_ta[:FUTURE_STEPS])
+    return ta, hs10, hs30, future_ta
+
+
+# --- auth --------------------------------------------------------------------
+
+class AuthService:
+    """Register / login and resolve bearer tokens. Password hashing + the clock are
+    injected so the core stays free of werkzeug and wall-clock coupling."""
+
+    def __init__(
+        self,
+        users: UserRepository,
+        sessions: SessionRepository,
+        hash_pw: Callable[[str], str],
+        verify_pw: Callable[[str, str], bool],
+        clock: Callable[[], int] = _now_s,
+    ):
+        self._users = users
+        self._sessions = sessions
+        self._hash = hash_pw
+        self._verify = verify_pw
+        self._clock = clock
+
+    def register(self, email: str, password: str) -> User:
+        if not email or not password:
+            raise InvalidCredentials("email and password required")
+        if self._users.get_by_email(email):
+            raise EmailTaken(email)
+        return self._users.add(email, self._hash(password))
+
+    def login(self, email: str, password: str) -> str:
+        user = self._users.get_by_email(email)
+        if not user or not self._verify(user.pw_hash, password):
+            raise InvalidCredentials("bad email or password")
+        token = secrets.token_urlsafe(32)
+        self._sessions.create(Session(token, user.id, self._clock() + SESSION_TTL_S))
+        return token
+
+    def resolve(self, token: str) -> User:
+        sess = self._sessions.get(token) if token else None
+        if not sess or sess.expires_at < self._clock():
+            raise Unauthorized("invalid or expired session")
+        user = self._users.get_by_id(sess.user_id)
+        if not user:
+            raise Unauthorized("session user not found")
+        return user
+
+
+# --- station ownership -------------------------------------------------------
+
+class StationService:
+    """Claim + owner-scoped read/update of stations."""
+
+    def __init__(self, stations: StationRepository):
+        self._stations = stations
+
+    def claim(self, user_id: int, dev_eui: str, name: str | None) -> Station:
+        st = self._stations.get(dev_eui)
+        if st is None:
+            st = Station(dev_eui=dev_eui, user_id=user_id, name=name or dev_eui)
+        elif st.user_id not in (None, user_id):
+            raise StationClaimed(dev_eui)
+        else:
+            st.user_id = user_id
+            if name:
+                st.name = name
+        self._stations.save(st)
+        return st
+
+    def get_owned(self, user_id: int, dev_eui: str) -> Station:
+        st = self._stations.get(dev_eui)
+        if st is None:
+            raise NotFound(dev_eui)
+        if st.user_id != user_id:
+            raise Forbidden(dev_eui)
+        return st
+
+    def update(self, user_id: int, dev_eui: str, patch: dict) -> Station:
+        st = self.get_owned(user_id, dev_eui)
+        for key in ("name", "mode"):
+            if key in patch:
+                st.__setattr__(key, str(patch[key]))
+        for key in ("lat", "lon"):
+            if key in patch:
+                st.__setattr__(key, float(patch[key]))
+        if "utc_offset_min" in patch:
+            st.utc_offset_min = int(patch["utc_offset_min"])
+        self._stations.save(st)
+        return st
+
+
+# --- uplink ingestion --------------------------------------------------------
 
 class IngestUplinkService:
-    """Store the latest uplink + its (uplink) signal for a station."""
+    """Persist a decoded uplink: soil records + coords + link quality per station."""
 
-    def __init__(self, repo: StationRepository, default_lat: float, default_lon: float):
-        self._repo = repo
+    def __init__(
+        self,
+        stations: StationRepository,
+        readings: ReadingRepository,
+        default_lat: float = 0.0,
+        default_lon: float = 0.0,
+    ):
+        self._stations = stations
+        self._readings = readings
         self._lat = default_lat
         self._lon = default_lon
 
-    def handle(self, uplink: Uplink) -> None:
-        link = self._repo.get(uplink.dev_id) or StationLink(uplink.dev_id, self._lat, self._lon)
-        link.last_uplink = uplink
-        link.last_signal = uplink.signal
-        self._repo.save(link)
+    def handle(self, dev_eui: str, decoded: dict, rssi, snr, at_s: int) -> None:
+        st = self._stations.get(dev_eui) or Station(
+            dev_eui=dev_eui, lat=self._lat, lon=self._lon
+        )
+        st.last_rssi = rssi
+        st.last_snr = snr
+        st.last_uplink_at = at_s
 
-
-class ScheduleDownlinkService:
-    """Build the clock + TA-forecast frame and push it to the station."""
-
-    def __init__(self, repo: StationRepository, ttn: TtnPort, forecast: ForecastPort):
-        self._repo = repo
-        self._ttn = ttn
-        self._forecast = forecast
-
-    def run(self, dev_id: str, now_epoch_s: int) -> DownlinkCommand:
-        link = self._repo.get(dev_id)
-        lat = link.lat if link else 0.0
-        lon = link.lon if link else 0.0
-        fc = self._forecast.fetch(lat, lon)
-        payload = codec.encode_downlink(now_epoch_s, fc.past_ta, fc.future_ta)
-        cmd = DownlinkCommand(dev_id=dev_id, f_port=FPORT, payload=payload)
-        self._ttn.schedule_downlink(cmd)
-        return cmd
+        kind = decoded.get("type")
+        if kind == "soil":
+            for rec in decoded["records"]:
+                self._readings.upsert_soil(SoilReading(
+                    dev_eui=dev_eui,
+                    ts_hour_s=rec["ts_hour_s"],
+                    hs10=rec["hs10"],
+                    hs30=rec["hs30"],
+                    ta=rec["ta"],
+                ))
+        elif kind == "coords":
+            st.lat = decoded["lat"]
+            st.lon = decoded["lon"]
+            st.utc_offset_min = decoded["utc_offset_min"]
+        # forecast / cfg_ack: only the link-quality + last_uplink_at update above.
+        self._stations.save(st)
 
 
 class SignalQueryService:
-    """Read the last known signal for a station (uplink rssi/snr from TTN)."""
+    """Read the last known uplink signal (RSSI/SNR from the TTN gateway)."""
 
-    def __init__(self, repo: StationRepository):
-        self._repo = repo
+    def __init__(self, stations: StationRepository):
+        self._stations = stations
 
-    def last_signal(self, dev_id: str) -> SignalReading | None:
-        link = self._repo.get(dev_id)
-        return link.last_signal if link else None
+    def last_signal(self, dev_eui: str) -> dict | None:
+        st = self._stations.get(dev_eui)
+        if not st or st.last_uplink_at is None:
+            return None
+        return {"rssi_dbm": st.last_rssi, "snr_db": st.last_snr, "at_s": st.last_uplink_at}
+
+
+# --- downlinks ---------------------------------------------------------------
+
+class ScheduleDownlinkService:
+    """Build + schedule the clock + TA-forecast (TIME_TA) downlink for a station."""
+
+    def __init__(
+        self,
+        stations: StationRepository,
+        forecast: ForecastPort,
+        ttn: TtnPort,
+        log: DownlinkLogRepository,
+        default_lat: float = 0.0,
+        default_lon: float = 0.0,
+    ):
+        self._stations = stations
+        self._forecast = forecast
+        self._ttn = ttn
+        self._log = log
+        self._lat = default_lat
+        self._lon = default_lon
+
+    def run(self, dev_eui: str, now_s: int) -> DownlinkCommand:
+        st = self._stations.get(dev_eui)
+        lat = st.lat if st else self._lat
+        lon = st.lon if st else self._lon
+        fc = self._forecast.fetch(lat, lon)
+        payload = codec.encode_downlink_time_ta(fc.past_ta, fc.future_ta, now_s)
+        cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
+        self._ttn.schedule_downlink(cmd)
+        self._log.add(dev_eui, now_s, "time_ta", payload.hex(), "scheduled")
+        return cmd
+
+
+class ConfigDownlinkService:
+    """Encode a config-patch TLV and schedule it as a downlink."""
+
+    def __init__(self, ttn: TtnPort, log: DownlinkLogRepository):
+        self._ttn = ttn
+        self._log = log
+
+    def run(self, dev_eui: str, fields: dict, now_s: int) -> DownlinkCommand:
+        payload = codec.encode_config_patch_tlv(fields)   # validates ranges, may raise
+        cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
+        self._ttn.schedule_downlink(cmd)
+        self._log.add(dev_eui, now_s, "config", payload.hex(), "scheduled")
+        return cmd
+
+
+# --- cloud FORWARD inference -------------------------------------------------
+
+class RunCloudInferenceService:
+    """FORWARD mode: build the 48 h window, run the LSTM in the cloud, store the 24 h
+    HS30 forecast, and push the clock + TA window back to the station."""
+
+    def __init__(
+        self,
+        readings: ReadingRepository,
+        forecasts: ForecastRepository,
+        forecast_src: ForecastPort,
+        infer: InferencePort,
+        ttn: TtnPort,
+        log: DownlinkLogRepository,
+    ):
+        self._readings = readings
+        self._forecasts = forecasts
+        self._forecast_src = forecast_src
+        self._infer = infer
+        self._ttn = ttn
+        self._log = log
+
+    def run(self, station: Station, now_s: int) -> list[float]:
+        latest_hour = now_s - (now_s % HOUR_S)
+        from_ts = latest_hour - (PAST_STEPS - 1) * HOUR_S
+        readings = self._readings.window(station.dev_eui, from_ts, latest_hour)
+        fc = self._forecast_src.fetch(station.lat, station.lon)
+        ta, hs10, hs30, future_ta = build_lstm_window(readings, fc, now_s)
+
+        pred = self._infer.predict_hs30(ta, hs10, hs30, future_ta)
+        self._forecasts.add_run(station.dev_eui, now_s, pred)
+
+        payload = codec.encode_downlink_time_ta(ta, future_ta, now_s)
+        cmd = DownlinkCommand(dev_id=station.dev_eui, f_port=FPORT, payload=payload)
+        self._ttn.schedule_downlink(cmd)
+        self._log.add(station.dev_eui, now_s, "time_ta", payload.hex(), "scheduled")
+        return pred
+
+
+class DailyCronService:
+    """Run FORWARD inference for the stations whose LOCAL hour matches daily_hour."""
+
+    def __init__(
+        self,
+        stations: StationRepository,
+        run_inference: RunCloudInferenceService,
+        daily_hour: int,
+    ):
+        self._stations = stations
+        self._run = run_inference
+        self._daily_hour = daily_hour
+
+    def run(self, now_s: int, force: bool = False) -> list[str]:
+        done = []
+        for st in self._stations.list_by_mode("forward"):
+            local_hour = ((now_s + st.utc_offset_min * 60) // HOUR_S) % 24
+            if force or local_hour == self._daily_hour:
+                try:
+                    self._run.run(st, now_s)
+                    done.append(st.dev_eui)
+                except InsufficientData:
+                    continue   # skip stations without a usable window this run
+        return done
 
 
 @dataclass
 class Services:
-    """Simple container the HTTP layer reads from app.config["SERVICES"]."""
+    """Container the HTTP layer reads from app.config["SERVICES"]."""
 
+    auth: AuthService
+    stations: StationService
     ingest_uplink: IngestUplinkService
-    schedule_downlink: ScheduleDownlinkService
     signal_query: SignalQueryService
-
-    @classmethod
-    def build(
-        cls,
-        repo: StationRepository,
-        ttn: TtnPort,
-        forecast: ForecastPort,
-        *,
-        default_lat: float = 0.0,
-        default_lon: float = 0.0,
-    ) -> "Services":
-        return cls(
-            ingest_uplink=IngestUplinkService(repo, default_lat, default_lon),
-            schedule_downlink=ScheduleDownlinkService(repo, ttn, forecast),
-            signal_query=SignalQueryService(repo),
-        )
+    schedule_downlink: ScheduleDownlinkService
+    config_downlink: ConfigDownlinkService
+    run_inference: RunCloudInferenceService
+    daily_cron: DailyCronService

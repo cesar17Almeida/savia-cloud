@@ -1,27 +1,48 @@
 """Domain entities -- plain data, no framework or I/O."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass
+class User:
+    """A registered owner. pw_hash is a werkzeug hash -- never the plaintext."""
+    email: str
+    pw_hash: str
+    id: int | None = None
 
 
 @dataclass(frozen=True)
-class SignalReading:
-    """Link quality for a device. The UPLINK rssi/snr come from the TTN gateway
-    metadata (node->gateway) -- the signal the station itself cannot measure."""
-    rssi_dbm: int | None
-    snr_db: float | None
-    at_ms: int
+class Session:
+    """A bearer token bound to a user, valid until expires_at (epoch seconds)."""
+    token: str
+    user_id: int
+    expires_at: int
+
+
+@dataclass
+class Station:
+    """A LoRaWAN station keyed by DevEUI. user_id is None until claimed."""
+    dev_eui: str
+    user_id: int | None = None
+    name: str = ""
+    lat: float = 0.0
+    lon: float = 0.0
+    utc_offset_min: int = 0
+    mode: str = "forward"          # "forward" | "local"
+    last_rssi: int | None = None
+    last_snr: float | None = None
+    last_uplink_at: int | None = None   # epoch seconds
 
 
 @dataclass(frozen=True)
-class Uplink:
-    """A decoded uplink from a station: the HS30 forecast min + reception quality."""
-    dev_id: str
-    f_port: int
-    hs30_min: float | None
-    signal: SignalReading
-    received_at_ms: int
-    raw: bytes
+class SoilReading:
+    """One hourly soil aggregate for a station. Any field may be None (gap)."""
+    dev_eui: str
+    ts_hour_s: int
+    hs10: float | None
+    hs30: float | None
+    ta: float | None
 
 
 @dataclass(frozen=True)
@@ -39,13 +60,3 @@ class DownlinkCommand:
     f_port: int
     payload: bytes
     confirmed: bool = False
-
-
-@dataclass
-class StationLink:
-    """What the backend remembers per station."""
-    dev_id: str
-    lat: float
-    lon: float
-    last_uplink: Uplink | None = None
-    last_signal: SignalReading | None = None
