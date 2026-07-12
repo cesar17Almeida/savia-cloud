@@ -1,0 +1,17 @@
+# systemd unit -- install as /etc/systemd/system/savia-cloud.service
+[Unit]
+Description=savia-cloud backend (TTN <-> Savia bridge)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=savia
+Group=savia
+WorkingDirectory=/opt/savia-cloud
+EnvironmentFile=/etc/savia-cloud/env
+ExecStart=/opt/savia-cloud/.venv/bin/gunicorn --workers 2 --timeout 60 --bind 127.0.0.1:8000 run:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
