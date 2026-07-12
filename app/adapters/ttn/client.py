@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import base64
 
-# import requests  # enable when wiring the real HTTP call
+import requests
 
 from config import Settings
 
@@ -20,14 +20,11 @@ class TtnHttpClient(TtnPort):
         self._s = settings
 
     def schedule_downlink(self, command: DownlinkCommand) -> None:
-        # POST {base}/api/v3/as/applications/{app}/devices/{dev}/down/push
-        # headers: Authorization: Bearer <TTN_API_KEY>
-        # body: {"downlinks": [{"f_port": N, "frm_payload": "<base64>", "priority": "NORMAL"}]}
-        _url = (
+        url = (
             f"{self._s.ttn_base_url}/api/v3/as/applications/"
             f"{self._s.ttn_app_id}/devices/{command.dev_id}/down/push"
         )
-        _body = {
+        body = {
             "downlinks": [
                 {
                     "f_port": command.f_port,
@@ -37,4 +34,9 @@ class TtnHttpClient(TtnPort):
                 }
             ]
         }
-        raise NotImplementedError("TODO: requests.post(_url, json=_body, headers=Bearer)")
+        headers = {"Authorization": f"Bearer {self._s.ttn_api_key}"}
+        resp = requests.post(url, json=body, headers=headers, timeout=10)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"TTN downlink push failed ({resp.status_code}): {resp.text[:300]}"
+            )
