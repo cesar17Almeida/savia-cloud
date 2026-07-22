@@ -1,0 +1,42 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync code
+        run: |
+          rsync -az --delete \
+            --exclude .git --exclude .github --exclude .venv \
+            --exclude models --exclude __pycache__ --exclude .pytest_cache \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            ./ ec2-user@${{ secrets.DEPLOY_HOST }}:/opt/savia-cloud/
+
+      - name: Install deps and restart
+        run: |
+          ssh -i ~/.ssh/deploy_key ec2-user@${{ secrets.DEPLOY_HOST }} '
+            set -e
+            cd /opt/savia-cloud
+            .venv/bin/pip install -q -r requirements.txt
+            sudo systemctl restart savia-cloud
+            sleep 3
+            curl -fsS http://127.0.0.1:8000/health
+          '
