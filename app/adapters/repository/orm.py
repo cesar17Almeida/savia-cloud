@@ -64,3 +64,14 @@ class DownlinkLogRow(Base):
     kind: Mapped[str] = mapped_column(String)
     payload_hex: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
+
+
+class UplinkLogRow(Base):
+    __tablename__ = "uplink_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dev_eui: Mapped[str] = mapped_column(String, index=True)
+    ts_s: Mapped[int] = mapped_column()
+    u_type: Mapped[str] = mapped_column(String)
+    payload_hex: Mapped[str] = mapped_column(String)
+    rssi: Mapped[int | None] = mapped_column(nullable=True)
+    snr: Mapped[float | None] = mapped_column(nullable=True)

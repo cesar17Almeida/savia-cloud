@@ -113,6 +113,42 @@ def station_signal(dev_eui: str):
     return jsonify(signal=sig)
 
 
+@bp.get("/stations/<dev_eui>/uplinks")
+@require_session
+def station_uplinks(dev_eui: str):
+    """Latest received uplinks (raw payload + decoded type + link quality)."""
+    _services().stations.get_owned(g.user.id, dev_eui)
+    limit = min(int(request.args.get("limit", 50)), 500)
+    ups = _services().panel.uplinks(dev_eui, limit)
+    return jsonify(uplinks=[{
+        "ts_s": u.ts_s, "type": u.u_type, "payload_hex": u.payload_hex,
+        "rssi": u.rssi, "snr": u.snr,
+    } for u in ups])
+
+
+@bp.get("/stations/<dev_eui>/readings")
+@require_session
+def station_readings(dev_eui: str):
+    """Latest stored hourly soil readings, newest first."""
+    _services().stations.get_owned(g.user.id, dev_eui)
+    limit = min(int(request.args.get("limit", 48)), 500)
+    rows = _services().panel.readings(dev_eui, limit)
+    return jsonify(readings=[{
+        "ts_hour_s": r.ts_hour_s, "hs10": r.hs10, "hs30": r.hs30, "ta": r.ta,
+    } for r in rows])
+
+
+@bp.get("/stations/<dev_eui>/forecast")
+@require_session
+def station_forecast(dev_eui: str):
+    """Latest stored inference run (24 h HS30, VWC 0..1)."""
+    _services().stations.get_owned(g.user.id, dev_eui)
+    run = _services().panel.latest_forecast(dev_eui)
+    if run is None:
+        return jsonify(forecast=None)
+    return jsonify(forecast={"run_ts_s": run.run_ts_s, "hs30": run.hs30})
+
+
 @bp.post("/stations/<dev_eui>/downlink")
 @require_session
 def station_downlink(dev_eui: str):
@@ -161,7 +197,8 @@ def ttn_uplink():
         best = max(mds, key=lambda m: m.get("rssi", -9999))
         rssi, snr = best.get("rssi"), best.get("snr")
 
-    _services().ingest_uplink.handle(dev_eui, decoded, rssi, snr, int(time.time()))
+    _services().ingest_uplink.handle(dev_eui, decoded, rssi, snr, int(time.time()),
+                                     raw_hex=raw.hex())
     return jsonify(ok=True, type=decoded.get("type"))
 
 

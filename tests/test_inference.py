@@ -34,6 +34,9 @@ class _Readings(ReadingRepository):
             for i in range(48)
         ]
 
+    def recent(self, dev_eui, limit):  # unused here
+        return []
+
 
 class _Forecasts(ForecastRepository):
     def __init__(self):
@@ -41,6 +44,9 @@ class _Forecasts(ForecastRepository):
 
     def add_run(self, dev_eui, run_ts_s, hs30):
         self.runs.append((dev_eui, run_ts_s, list(hs30)))
+
+    def latest_run(self, dev_eui):  # unused here
+        return None
 
 
 class _Weather(ForecastPort):
@@ -62,6 +68,9 @@ class _Log(DownlinkLogRepository):
 
     def add(self, dev_eui, ts_s, kind, payload_hex, status):
         self.entries.append((dev_eui, kind, status))
+
+    def list_recent(self, dev_eui, limit):  # unused here
+        return []
 
 
 def test_forward_inference_runs_and_schedules_downlink():

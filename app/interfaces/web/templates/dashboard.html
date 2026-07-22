@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Estaciones — Savia Cloud{% endblock %}
+{% block content %}
+<h1>Estaciones</h1>
+{% if not stations %}
+  <p class="muted">Sin estaciones todavía. Aparecerán con su primer uplink LoRa.</p>
+{% endif %}
+<div class="cards">
+  {% for st in stations %}
+  <a class="card station" href="{{ url_for('web.station', dev_eui=st.dev_eui) }}">
+    <div class="card-head">
+      <strong>{{ st.name or st.dev_eui }}</strong>
+      <span class="chip {{ 'ok' if st.last_uplink_at else '' }}">
+        {{ st.mode }}
+      </span>
+    </div>
+    <dl>
+      <div><dt>DevEUI</dt><dd class="mono">{{ st.dev_eui }}</dd></div>
+      <div><dt>Último uplink</dt><dd>{{ st.last_uplink_at | dt(st.utc_offset_min) }}</dd></div>
+      <div><dt>Señal</dt>
+        <dd>{% if st.last_rssi is not none %}{{ st.last_rssi }} dBm / {{ st.last_snr }} dB{% else %}—{% endif %}</dd>
+      </div>
+      <div><dt>Posición</dt><dd>{{ '%.4f'|format(st.lat) }}, {{ '%.4f'|format(st.lon) }}</dd></div>
+    </dl>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

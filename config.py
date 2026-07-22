@@ -30,6 +30,8 @@ class Settings:
     # HTTP server.
     host: str = "0.0.0.0"
     port: int = 8000
+    # Flask session-cookie signing key (web panel). Set SECRET_KEY in production.
+    secret_key: str = "dev-not-secret"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -46,4 +48,5 @@ class Settings:
             model_path=os.getenv("MODEL_PATH", cls.model_path),
             host=os.getenv("HOST", cls.host),
             port=int(os.getenv("PORT", cls.port)),
+            secret_key=os.getenv("SECRET_KEY", cls.secret_key),
         )

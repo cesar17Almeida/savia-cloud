@@ -5,10 +5,13 @@ from abc import ABC, abstractmethod
 
 from .models import (
     DownlinkCommand,
+    DownlinkRecord,
     Forecast,
+    ForecastRun,
     Session,
     SoilReading,
     Station,
+    UplinkRecord,
     User,
 )
 
@@ -61,6 +64,9 @@ class StationRepository(ABC):
     @abstractmethod
     def list_by_mode(self, mode: str) -> list[Station]: ...
 
+    @abstractmethod
+    def list_all(self) -> list[Station]: ...
+
 
 class UserRepository(ABC):
     @abstractmethod
@@ -71,6 +77,9 @@ class UserRepository(ABC):
 
     @abstractmethod
     def add(self, email: str, pw_hash: str) -> User: ...
+
+    @abstractmethod
+    def update_password(self, user_id: int, pw_hash: str) -> None: ...
 
 
 class SessionRepository(ABC):
@@ -90,6 +99,11 @@ class ReadingRepository(ABC):
         """Soil readings with from_ts <= ts_hour_s <= to_ts, oldest first."""
         ...
 
+    @abstractmethod
+    def recent(self, dev_eui: str, limit: int) -> list[SoilReading]:
+        """Latest soil readings, newest first."""
+        ...
+
 
 class ForecastRepository(ABC):
     @abstractmethod
@@ -97,7 +111,29 @@ class ForecastRepository(ABC):
         """Store a 24 h forecast run (horizon_h 1..len)."""
         ...
 
+    @abstractmethod
+    def latest_run(self, dev_eui: str) -> ForecastRun | None:
+        """Most recent stored run, hs30 ordered by horizon."""
+        ...
+
 
 class DownlinkLogRepository(ABC):
     @abstractmethod
     def add(self, dev_eui: str, ts_s: int, kind: str, payload_hex: str, status: str) -> None: ...
+
+    @abstractmethod
+    def list_recent(self, dev_eui: str, limit: int) -> list[DownlinkRecord]:
+        """Latest scheduled downlinks, newest first."""
+        ...
+
+
+class UplinkLogRepository(ABC):
+    """Raw history of received uplinks (payload + decoded type + link quality)."""
+
+    @abstractmethod
+    def add(self, record: UplinkRecord) -> None: ...
+
+    @abstractmethod
+    def list_recent(self, dev_eui: str, limit: int) -> list[UplinkRecord]:
+        """Latest received uplinks, newest first."""
+        ...

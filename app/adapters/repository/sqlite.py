@@ -5,13 +5,22 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from ...domain.models import Session, SoilReading, Station, User
+from ...domain.models import (
+    DownlinkRecord,
+    ForecastRun,
+    Session,
+    SoilReading,
+    Station,
+    UplinkRecord,
+    User,
+)
 from ...domain.ports import (
     DownlinkLogRepository,
     ForecastRepository,
     ReadingRepository,
     SessionRepository,
     StationRepository,
+    UplinkLogRepository,
     UserRepository,
 )
 from . import orm
@@ -52,6 +61,13 @@ class SqlUserRepository(UserRepository):
             s.add(row)
             s.commit()
             return User(row.email, row.pw_hash, row.id)
+
+    def update_password(self, user_id: int, pw_hash: str) -> None:
+        with self._sm() as s:
+            row = s.get(orm.UserRow, user_id)
+            if row:
+                row.pw_hash = pw_hash
+                s.commit()
 
 
 class SqlSessionRepository(SessionRepository):
@@ -102,6 +118,11 @@ class SqlStationRepository(StationRepository):
             rows = s.scalars(select(orm.StationRow).where(orm.StationRow.mode == mode)).all()
             return [_station(r) for r in rows]
 
+    def list_all(self) -> list[Station]:
+        with self._sm() as s:
+            rows = s.scalars(select(orm.StationRow).order_by(orm.StationRow.dev_eui)).all()
+            return [_station(r) for r in rows]
+
 
 class SqlReadingRepository(ReadingRepository):
     def __init__(self, sm: sessionmaker):
@@ -129,6 +150,16 @@ class SqlReadingRepository(ReadingRepository):
             ).all()
             return [SoilReading(r.dev_eui, r.ts_hour_s, r.hs10, r.hs30, r.ta) for r in rows]
 
+    def recent(self, dev_eui: str, limit: int) -> list[SoilReading]:
+        with self._sm() as s:
+            rows = s.scalars(
+                select(orm.SoilReadingRow)
+                .where(orm.SoilReadingRow.dev_eui == dev_eui)
+                .order_by(orm.SoilReadingRow.ts_hour_s.desc())
+                .limit(limit)
+            ).all()
+            return [SoilReading(r.dev_eui, r.ts_hour_s, r.hs10, r.hs30, r.ta) for r in rows]
+
 
 class SqlForecastRepository(ForecastRepository):
     def __init__(self, sm: sessionmaker):
@@ -139,6 +170,24 @@ class SqlForecastRepository(ForecastRepository):
             for h, value in enumerate(hs30, start=1):
                 s.add(orm.ForecastRow(dev_eui=dev_eui, run_ts_s=run_ts_s, horizon_h=h, hs30=value))
             s.commit()
+
+    def latest_run(self, dev_eui: str) -> ForecastRun | None:
+        with self._sm() as s:
+            last_ts = s.scalar(
+                select(orm.ForecastRow.run_ts_s)
+                .where(orm.ForecastRow.dev_eui == dev_eui)
+                .order_by(orm.ForecastRow.run_ts_s.desc())
+                .limit(1)
+            )
+            if last_ts is None:
+                return None
+            rows = s.scalars(
+                select(orm.ForecastRow)
+                .where(orm.ForecastRow.dev_eui == dev_eui)
+                .where(orm.ForecastRow.run_ts_s == last_ts)
+                .order_by(orm.ForecastRow.horizon_h)
+            ).all()
+            return ForecastRun(dev_eui, last_ts, [r.hs30 for r in rows])
 
 
 class SqlDownlinkLogRepository(DownlinkLogRepository):
@@ -151,3 +200,38 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
                 dev_eui=dev_eui, ts_s=ts_s, kind=kind, payload_hex=payload_hex, status=status,
             ))
             s.commit()
+
+    def list_recent(self, dev_eui: str, limit: int) -> list[DownlinkRecord]:
+        with self._sm() as s:
+            rows = s.scalars(
+                select(orm.DownlinkLogRow)
+                .where(orm.DownlinkLogRow.dev_eui == dev_eui)
+                .order_by(orm.DownlinkLogRow.id.desc())
+                .limit(limit)
+            ).all()
+            return [DownlinkRecord(r.dev_eui, r.ts_s, r.kind, r.payload_hex, r.status)
+                    for r in rows]
+
+
+class SqlUplinkLogRepository(UplinkLogRepository):
+    def __init__(self, sm: sessionmaker):
+        self._sm = sm
+
+    def add(self, record: UplinkRecord) -> None:
+        with self._sm() as s:
+            s.add(orm.UplinkLogRow(
+                dev_eui=record.dev_eui, ts_s=record.ts_s, u_type=record.u_type,
+                payload_hex=record.payload_hex, rssi=record.rssi, snr=record.snr,
+            ))
+            s.commit()
+
+    def list_recent(self, dev_eui: str, limit: int) -> list[UplinkRecord]:
+        with self._sm() as s:
+            rows = s.scalars(
+                select(orm.UplinkLogRow)
+                .where(orm.UplinkLogRow.dev_eui == dev_eui)
+                .order_by(orm.UplinkLogRow.id.desc())
+                .limit(limit)
+            ).all()
+            return [UplinkRecord(r.dev_eui, r.ts_s, r.u_type, r.payload_hex, r.rssi, r.snr)
+                    for r in rows]

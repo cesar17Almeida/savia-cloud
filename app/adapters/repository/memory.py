@@ -17,3 +17,6 @@ class InMemoryStationRepository(StationRepository):
 
     def list_by_mode(self, mode: str) -> list[Station]:
         return [s for s in self._by_id.values() if s.mode == mode]
+
+    def list_all(self) -> list[Station]:
+        return sorted(self._by_id.values(), key=lambda s: s.dev_eui)

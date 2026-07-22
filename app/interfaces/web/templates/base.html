@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Savia Cloud{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('web.dashboard') }}">SAVIA<span>cloud</span></a>
+  <nav>
+    <a href="{{ url_for('web.dashboard') }}">Estaciones</a>
+    <a href="{{ url_for('web.password') }}">Contraseña</a>
+    <form method="post" action="{{ url_for('web.logout') }}" class="inline">
+      <button type="submit" class="ghost">Salir</button>
+    </form>
+  </nav>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

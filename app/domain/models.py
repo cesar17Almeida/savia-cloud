@@ -60,3 +60,32 @@ class DownlinkCommand:
     f_port: int
     payload: bytes
     confirmed: bool = False
+
+
+@dataclass(frozen=True)
+class UplinkRecord:
+    """One received uplink as logged: raw payload + decoded type + link quality."""
+    dev_eui: str
+    ts_s: int
+    u_type: str
+    payload_hex: str
+    rssi: int | None
+    snr: float | None
+
+
+@dataclass(frozen=True)
+class DownlinkRecord:
+    """One scheduled downlink as logged."""
+    dev_eui: str
+    ts_s: int
+    kind: str
+    payload_hex: str
+    status: str
+
+
+@dataclass(frozen=True)
+class ForecastRun:
+    """One stored inference run: 24 hourly HS30 values (VWC 0..1)."""
+    dev_eui: str
+    run_ts_s: int
+    hs30: list[float] = field(default_factory=list)

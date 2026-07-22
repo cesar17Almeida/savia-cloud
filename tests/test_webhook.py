@@ -50,11 +50,14 @@ class _FakeReadings(ReadingRepository):
     def window(self, dev_eui, from_ts, to_ts):
         return []
 
+    def recent(self, dev_eui, limit):
+        return []
+
 
 def test_ingest_service_upserts_soil_records():
     stations = InMemoryStationRepository()
     readings = _FakeReadings()
-    svc = IngestUplinkService(stations, readings, 39.47, -0.38)
+    svc = IngestUplinkService(stations, readings, default_lat=39.47, default_lon=-0.38)
 
     decoded = codec.decode_uplink(SOIL_FRAME)
     svc.handle("EUI-Z", decoded, -80, 8.0, 1782000000)

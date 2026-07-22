@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Savia Cloud — Acceso</title>
+  <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
+</head>
+<body class="login-body">
+<div class="login-card">
+  <div class="brand big">SAVIA<span>cloud</span></div>
+  <p class="muted">Consola del operador</p>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+  <form method="post">
+    <label>Usuario
+      <input name="user" autocomplete="username" autofocus>
+    </label>
+    <label>Contraseña
+      <input name="password" type="password" autocomplete="current-password">
+    </label>
+    <button type="submit" class="primary">Entrar</button>
+  </form>
+</div>
+</body>
+</html>

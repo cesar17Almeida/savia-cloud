@@ -9,10 +9,13 @@ from typing import Callable
 from ..adapters.ttn import codec
 from ..domain.models import (
     DownlinkCommand,
+    DownlinkRecord,
     Forecast,
+    ForecastRun,
     Session,
     SoilReading,
     Station,
+    UplinkRecord,
     User,
 )
 from ..domain.ports import (
@@ -24,6 +27,7 @@ from ..domain.ports import (
     SessionRepository,
     StationRepository,
     TtnPort,
+    UplinkLogRepository,
     UserRepository,
 )
 from .errors import (
@@ -149,6 +153,13 @@ class AuthService:
             raise Unauthorized("session user not found")
         return user
 
+    def change_password(self, user: User, old_password: str, new_password: str) -> None:
+        if not new_password:
+            raise InvalidCredentials("new password required")
+        if not self._verify(user.pw_hash, old_password):
+            raise InvalidCredentials("current password is wrong")
+        self._users.update_password(user.id, self._hash(new_password))
+
 
 # --- station ownership -------------------------------------------------------
 
@@ -196,21 +207,29 @@ class StationService:
 # --- uplink ingestion --------------------------------------------------------
 
 class IngestUplinkService:
-    """Persist a decoded uplink: soil records + coords + link quality per station."""
+    """Persist a decoded uplink: raw log + soil records + coords + link quality."""
 
     def __init__(
         self,
         stations: StationRepository,
         readings: ReadingRepository,
+        uplinks: UplinkLogRepository | None = None,
         default_lat: float = 0.0,
         default_lon: float = 0.0,
     ):
         self._stations = stations
         self._readings = readings
+        self._uplinks = uplinks
         self._lat = default_lat
         self._lon = default_lon
 
-    def handle(self, dev_eui: str, decoded: dict, rssi, snr, at_s: int) -> None:
+    def handle(self, dev_eui: str, decoded: dict, rssi, snr, at_s: int,
+               raw_hex: str = "") -> None:
+        if self._uplinks is not None:
+            self._uplinks.add(UplinkRecord(
+                dev_eui=dev_eui, ts_s=at_s, u_type=decoded.get("type", "unknown"),
+                payload_hex=raw_hex, rssi=rssi, snr=snr,
+            ))
         st = self._stations.get(dev_eui) or Station(
             dev_eui=dev_eui, lat=self._lat, lon=self._lon
         )
@@ -362,6 +381,60 @@ class DailyCronService:
         return done
 
 
+class PanelService:
+    """Operator-console queries: every station, its traffic and stored data.
+    Unlike StationService this is NOT owner-scoped -- the web panel authenticates
+    as the operator (admin) and oversees the whole fleet."""
+
+    def __init__(
+        self,
+        stations: StationRepository,
+        readings: ReadingRepository,
+        forecasts: ForecastRepository,
+        uplinks: UplinkLogRepository,
+        downlinks: DownlinkLogRepository,
+    ):
+        self._stations = stations
+        self._readings = readings
+        self._forecasts = forecasts
+        self._uplinks = uplinks
+        self._downlinks = downlinks
+
+    def stations(self) -> list[Station]:
+        return self._stations.list_all()
+
+    def station(self, dev_eui: str) -> Station:
+        st = self._stations.get(dev_eui)
+        if st is None:
+            raise NotFound(dev_eui)
+        return st
+
+    def uplinks(self, dev_eui: str, limit: int = 25) -> list[UplinkRecord]:
+        return self._uplinks.list_recent(dev_eui, limit)
+
+    def downlinks(self, dev_eui: str, limit: int = 25) -> list[DownlinkRecord]:
+        return self._downlinks.list_recent(dev_eui, limit)
+
+    def readings(self, dev_eui: str, limit: int = 48) -> list[SoilReading]:
+        return self._readings.recent(dev_eui, limit)
+
+    def latest_forecast(self, dev_eui: str) -> ForecastRun | None:
+        return self._forecasts.latest_run(dev_eui)
+
+    def update_station(self, dev_eui: str, patch: dict) -> Station:
+        st = self.station(dev_eui)
+        for key in ("name", "mode"):
+            if key in patch:
+                setattr(st, key, str(patch[key]))
+        for key in ("lat", "lon"):
+            if key in patch:
+                setattr(st, key, float(patch[key]))
+        if "utc_offset_min" in patch:
+            st.utc_offset_min = int(patch["utc_offset_min"])
+        self._stations.save(st)
+        return st
+
+
 @dataclass
 class Services:
     """Container the HTTP layer reads from app.config["SERVICES"]."""
@@ -374,3 +447,4 @@ class Services:
     config_downlink: ConfigDownlinkService
     run_inference: RunCloudInferenceService
     daily_cron: DailyCronService
+    panel: PanelService
