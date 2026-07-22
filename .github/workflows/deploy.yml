@@ -37,6 +37,11 @@ jobs:
             cd /opt/savia-cloud
             .venv/bin/pip install -q -r requirements.txt
             sudo systemctl restart savia-cloud
-            sleep 3
-            curl -fsS http://127.0.0.1:8000/health
+            for i in $(seq 1 15); do
+              curl -fsS http://127.0.0.1:8000/health && exit 0
+              sleep 2
+            done
+            echo "service did not come up" >&2
+            sudo journalctl -u savia-cloud -n 20 --no-pager >&2
+            exit 1
           '
