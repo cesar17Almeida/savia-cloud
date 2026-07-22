@@ -15,6 +15,12 @@ def _soil_frame(ts_hour_s: int, hs10=0.79, hs30=0.77, ta=24.0) -> bytes:
     return bytes([0x02, 0x02, 1]) + rec
 
 
+def _config_downlinks(ttn_capture) -> list[bytes]:
+    payloads = [base64.b64decode(c["json"]["downlinks"][0]["frm_payload"])
+                for c in ttn_capture if "down/push" in c["url"]]
+    return [p for p in payloads if p[1] == 0x02]
+
+
 def _post_uplink(client, frame: bytes, dev_id="savia"):
     return client.post("/ttn/uplink", json={
         "end_device_ids": {"device_id": dev_id},
@@ -80,7 +86,7 @@ def test_config_form_schedules_tlv_downlink(client, ttn_capture):
                        follow_redirects=True)
     html = resp.get_data(as_text=True)
     assert "Config encolada" in html
-    assert len(ttn_capture) == 1
+    assert len(_config_downlinks(ttn_capture)) == 1
     # DB mirror: utc_offset_min applied to the station row.
     assert "offset 120 min" in client.get("/home/stations/savia").get_data(as_text=True)
 
@@ -91,7 +97,7 @@ def test_config_form_rejects_out_of_range(client, ttn_capture):
     resp = client.post("/home/stations/savia/config", data={"lora_period_s": "10"},
                        follow_redirects=True)
     assert "rechazada" in resp.get_data(as_text=True)
-    assert not ttn_capture
+    assert not _config_downlinks(ttn_capture)
 
 
 def test_api_uplinks_endpoint(client):
@@ -163,6 +169,6 @@ def test_timezone_selector_sends_tlv(client, ttn_capture):
     resp = client.post("/home/stations/savia/timezone", data={"tz": "America/Bogota"},
                        follow_redirects=True)
     assert "America/Bogota" in resp.get_data(as_text=True)
-    assert len(ttn_capture) == 1
+    assert len(_config_downlinks(ttn_capture)) == 1
     svc = client.application.config["SERVICES"]
     assert svc.panel.station("savia").utc_offset_min == -300  # Bogota, no DST

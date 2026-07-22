@@ -206,8 +206,14 @@ class StationService:
 
 # --- uplink ingestion --------------------------------------------------------
 
+# Re-sync the station clock at most this often (TTN fair use: <=10 downlinks/day).
+TIME_SYNC_GAP_S = 6 * 3600
+
+
 class IngestUplinkService:
-    """Persist a decoded uplink: raw log + soil records + coords + link quality."""
+    """Persist a decoded uplink: raw log + soil records + coords + link quality.
+    Also keeps the station clock fresh: if no time_ta downlink went out in the
+    last TIME_SYNC_GAP_S, queue a pure 8-byte clock sync for the next RX window."""
 
     def __init__(
         self,
@@ -216,12 +222,16 @@ class IngestUplinkService:
         uplinks: UplinkLogRepository | None = None,
         default_lat: float = 0.0,
         default_lon: float = 0.0,
+        ttn: TtnPort | None = None,
+        downlinks: DownlinkLogRepository | None = None,
     ):
         self._stations = stations
         self._readings = readings
         self._uplinks = uplinks
         self._lat = default_lat
         self._lon = default_lon
+        self._ttn = ttn
+        self._downlinks = downlinks
 
     def handle(self, dev_eui: str, decoded: dict, rssi, snr, at_s: int,
                raw_hex: str = "") -> None:
@@ -253,6 +263,24 @@ class IngestUplinkService:
             st.utc_offset_min = decoded["utc_offset_min"]
         # forecast / cfg_ack: only the link-quality + last_uplink_at update above.
         self._stations.save(st)
+        self._maybe_queue_clock_sync(dev_eui, at_s)
+
+    def _maybe_queue_clock_sync(self, dev_eui: str, at_s: int) -> None:
+        """Keep the station clock fresh without violating TTN fair use."""
+        if self._ttn is None or self._downlinks is None:
+            return
+        recent = self._downlinks.list_recent(dev_eui, 10)
+        last = next((d.ts_s for d in recent if d.kind == "time_ta"), None)
+        if last is not None and at_s - last < TIME_SYNC_GAP_S:
+            return
+        payload = codec.encode_downlink_time_ta([], [], at_s)   # 8 B pure clock
+        cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
+        try:
+            self._ttn.schedule_downlink(cmd)
+            status = "scheduled"
+        except Exception as e:
+            status = f"failed: {e}"[:120]
+        self._downlinks.add(dev_eui, at_s, "time_ta", payload.hex(), status)
 
 
 class SignalQueryService:

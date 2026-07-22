@@ -90,6 +90,17 @@ def _cron_force(client):
                        headers={"X-Cron-Token": "csecret"})
 
 
+def _payloads(ttn_capture) -> list[bytes]:
+    return [base64.b64decode(c["json"]["downlinks"][0]["frm_payload"])
+            for c in ttn_capture if "down/push" in c["url"]]
+
+
+def _inference_downlinks(ttn_capture) -> list[bytes]:
+    """TIME_TA frames carrying the full TA window (vs the 8-B auto clock sync)."""
+    return [p for p in _payloads(ttn_capture)
+            if p[1] == codec.DN_TIME_TA and len(p) > 8]
+
+
 # --- 1. zero-config enrollment ----------------------------------------------
 
 def test_station_enrolls_on_first_uplink(client):
@@ -132,9 +143,9 @@ def test_full_forward_cycle(client, ttn_capture):
     assert all(0.0 < v < 1.0 for v in run.hs30)
 
     # Downlink back to the node: decode the pushed frame and check the window.
-    assert len(ttn_capture) == 1
-    body = ttn_capture[0]["json"]["downlinks"][0]
-    payload = base64.b64decode(body["frm_payload"])
+    infs = _inference_downlinks(ttn_capture)
+    assert len(infs) == 1
+    payload = infs[0]
     assert payload[0] == codec.VERSION and payload[1] == codec.DN_TIME_TA
     clock = int.from_bytes(payload[2:6], "big")
     assert abs(clock - time.time()) < 120          # fresh clock sync
@@ -149,7 +160,7 @@ def test_incomplete_window_refuses_inference(client, ttn_capture):
     _feed_history(client, 3)
     r = _cron_force(client)
     assert r.get_json()["ran"] == []
-    assert not ttn_capture
+    assert not _inference_downlinks(ttn_capture)
     assert client.application.config["SERVICES"].panel.latest_forecast(DEV) is None
 
 
@@ -157,7 +168,7 @@ def test_gap_over_6h_refuses_inference(client, ttn_capture):
     """48 h of data with a 7 h hole in the middle is refused."""
     _feed_history(client, 48, hole=range(20, 27))
     assert _cron_force(client).get_json()["ran"] == []
-    assert not ttn_capture
+    assert not _inference_downlinks(ttn_capture)
 
 
 @needs_model
@@ -165,7 +176,7 @@ def test_gap_up_to_6h_is_interpolated(client, ttn_capture):
     """A 5 h hole is LOCF-filled and the cycle still completes."""
     _feed_history(client, 48, hole=range(20, 25))
     assert DEV in _cron_force(client).get_json()["ran"]
-    assert len(ttn_capture) == 1
+    assert len(_inference_downlinks(ttn_capture)) == 1
 
 
 # --- 6. remote config with acknowledgement -----------------------------------

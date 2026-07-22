@@ -76,3 +76,18 @@ def test_ingest_service_updates_coords():
     svc.handle("EUI-C", decoded, -70, 6.0, 111)
     st = stations.get("EUI-C")
     assert round(st.lat, 6) == 39.469975 and st.utc_offset_min == 120
+
+
+def test_uplink_queues_clock_sync_at_most_every_6h(client, ttn_capture):
+    """Any uplink refreshes the station clock if none went out in 6 h; a second
+    uplink right after must NOT queue another one (TTN fair use)."""
+    body = _ttn_body()
+    client.post("/ttn/uplink", json=body, headers={"X-Webhook-Token": WEBHOOK_SECRET})
+    assert len(ttn_capture) == 1                      # 8-byte pure clock sync
+    import base64 as b64
+    payload = b64.b64decode(ttn_capture[0]["json"]["downlinks"][0]["frm_payload"])
+    assert payload[:2] == bytes([0x02, 0x01]) and len(payload) == 8
+    assert payload[6] == 0 and payload[7] == 0        # no TA arrays
+
+    client.post("/ttn/uplink", json=body, headers={"X-Webhook-Token": WEBHOOK_SECRET})
+    assert len(ttn_capture) == 1                      # still just one
