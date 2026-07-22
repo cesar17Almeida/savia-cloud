@@ -76,7 +76,7 @@ def create_app(settings: Settings | None = None) -> Flask:
         config_downlink=ConfigDownlinkService(ttn, dl_log),
         run_inference=run_inference,
         daily_cron=DailyCronService(stations, run_inference, settings.daily_hour),
-        panel=PanelService(stations, readings, forecasts, ul_log, dl_log),
+        panel=PanelService(stations, readings, forecasts, ul_log, dl_log, ttn),
     )
 
     # Seed the default operator account for the web panel.
@@ -88,6 +88,6 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     @app.get("/")
     def _root():
-        return redirect("/ui/")
+        return redirect("/home/")
 
     return app

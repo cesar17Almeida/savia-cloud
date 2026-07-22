@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Agregar dispositivo — Savia Cloud{% endblock %}
+{% block content %}
+<h1>Agregar dispositivo</h1>
+<section class="card narrow-form">
+  <form method="post">
+    <h2>Identidad</h2>
+    <div class="form-grid">
+      <label>ID de dispositivo (TTN device id)
+        <input name="dev_id" value="{{ form.get('dev_id', '') }}" placeholder="savia-2" autofocus required>
+      </label>
+      <label>Nombre
+        <input name="name" value="{{ form.get('name', '') }}" placeholder="Estación invernadero">
+      </label>
+      <label>Modo de inferencia
+        <select name="mode">
+          <option value="forward">forward (nube)</option>
+          <option value="local">local (estación)</option>
+        </select>
+      </label>
+      <label>Zona horaria
+        <select name="tz">
+          {% for label, tz in timezones %}
+            <option value="{{ tz }}" {{ 'selected' if tz == 'Europe/Madrid' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Latitud <input name="lat" type="number" step="any" placeholder="39.48"></label>
+      <label>Longitud <input name="lon" type="number" step="any" placeholder="-0.34"></label>
+    </div>
+
+    <h2>Aprovisionamiento OTAA en TTN <span class="muted small">(opcional)</span></h2>
+    <p class="muted small">Si rellenas las claves, el dispositivo se registra en la
+      aplicación TTN <code>savia</code> (EU868, LoRaWAN 1.0.2) listo para hacer join.
+      Déjalo vacío si ya está registrado o solo quieres crearlo en el panel.</p>
+    <div class="form-grid">
+      <label>DevEUI <span class="muted small">16 hex</span>
+        <input name="dev_eui" class="mono" placeholder="70B3D57ED0000000" maxlength="16">
+      </label>
+      <label>JoinEUI / AppEUI <span class="muted small">16 hex</span>
+        <input name="join_eui" class="mono" placeholder="0000000000000000" maxlength="16">
+      </label>
+      <label>AppKey <span class="muted small">32 hex</span>
+        <input name="app_key" class="mono" placeholder="claves OTAA del nodo" maxlength="32">
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('web.dashboard') }}"><button type="button" class="ghost">Cancelar</button></a>
+      <button type="submit" class="primary">Dar de alta</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -61,6 +61,9 @@ class _Ttn(TtnPort):
     def schedule_downlink(self, command):
         self.pushed.append(command)
 
+    def register_device(self, device_id, dev_eui, join_eui, app_key):  # unused here
+        pass
+
 
 class _Log(DownlinkLogRepository):
     def __init__(self):

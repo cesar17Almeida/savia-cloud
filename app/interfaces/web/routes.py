@@ -7,6 +7,8 @@ session cookie. Fleet-wide queries go through PanelService.
 from __future__ import annotations
 
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import (
     Blueprint,
@@ -23,8 +25,32 @@ from ...adapters.ttn import codec
 from ...application.errors import AppError, InsufficientData, Unauthorized
 from ...application.services import Services
 
-bp = Blueprint("web", __name__, url_prefix="/ui",
+bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
+
+# Curated IANA zones for the station timezone selector (label, tz name).
+TIMEZONES = [
+    ("España (peninsular) — Europe/Madrid", "Europe/Madrid"),
+    ("España (Canarias) — Atlantic/Canary", "Atlantic/Canary"),
+    ("Portugal — Europe/Lisbon", "Europe/Lisbon"),
+    ("Francia — Europe/Paris", "Europe/Paris"),
+    ("Reino Unido — Europe/London", "Europe/London"),
+    ("Colombia — America/Bogota", "America/Bogota"),
+    ("México (centro) — America/Mexico_City", "America/Mexico_City"),
+    ("Argentina — America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"),
+    ("Chile — America/Santiago", "America/Santiago"),
+    ("Perú — America/Lima", "America/Lima"),
+    ("Ecuador — America/Guayaquil", "America/Guayaquil"),
+    ("EE. UU. (este) — America/New_York", "America/New_York"),
+    ("EE. UU. (oeste) — America/Los_Angeles", "America/Los_Angeles"),
+    ("UTC", "UTC"),
+]
+
+
+def _tz_offset_min(tz_name: str) -> int:
+    """Current UTC offset of an IANA zone, in minutes (DST-aware at call time)."""
+    delta = datetime.now(ZoneInfo(tz_name)).utcoffset()
+    return int(delta.total_seconds() // 60)
 
 
 def _services() -> Services:
@@ -121,6 +147,40 @@ def dashboard():
     return render_template("dashboard.html", stations=_services().panel.stations())
 
 
+@bp.route("/stations/new", methods=["GET", "POST"])
+def station_new():
+    """Register a device from the panel; optionally provision it in TTN (OTAA)."""
+    if request.method == "POST":
+        f = request.form
+        dev_id = f.get("dev_id", "").strip()
+        if not dev_id:
+            flash("El ID de dispositivo es obligatorio", "error")
+            return render_template("station_new.html", timezones=TIMEZONES, form=f)
+        keys = {k: f.get(k, "") for k in ("dev_eui", "join_eui", "app_key")}
+        ttn_keys = keys if any(v.strip() for v in keys.values()) else None
+        try:
+            tz = f.get("tz", "UTC")
+            _services().panel.add_station(
+                dev_id,
+                name=f.get("name", "").strip(),
+                mode=f.get("mode", "forward"),
+                utc_offset_min=_tz_offset_min(tz),
+                lat=float(f.get("lat") or 0.0),
+                lon=float(f.get("lon") or 0.0),
+                ttn_keys=ttn_keys,
+            )
+        except AppError:
+            flash(f"El dispositivo '{dev_id}' ya existe", "error")
+            return render_template("station_new.html", timezones=TIMEZONES, form=f)
+        except (ValueError, RuntimeError) as e:
+            flash(f"No se pudo dar de alta: {e}", "error")
+            return render_template("station_new.html", timezones=TIMEZONES, form=f)
+        flash("Dispositivo dado de alta" +
+              (" y aprovisionado en TTN" if ttn_keys else ""), "ok")
+        return redirect(url_for("web.station", dev_eui=dev_id))
+    return render_template("station_new.html", timezones=TIMEZONES, form={})
+
+
 @bp.get("/stations/<dev_eui>")
 def station(dev_eui: str):
     svc = _services()
@@ -129,11 +189,32 @@ def station(dev_eui: str):
     return render_template(
         "station.html",
         st=st,
+        station_local_now=_fmt_dt(int(time.time()), st.utc_offset_min),
+        timezones=TIMEZONES,
         uplinks=[(u, _summary(u.u_type, u.payload_hex)) for u in ups],
         downlinks=svc.panel.downlinks(dev_eui),
         readings=svc.panel.readings(dev_eui),
         forecast=svc.panel.latest_forecast(dev_eui),
     )
+
+
+@bp.post("/stations/<dev_eui>/timezone")
+def station_timezone(dev_eui: str):
+    """Set the station timezone: DST-aware offset via LoRa TLV + DB mirror."""
+    tz = request.form.get("tz", "")
+    if tz not in {z for _, z in TIMEZONES}:
+        flash("Zona horaria no reconocida", "error")
+        return redirect(url_for("web.station", dev_eui=dev_eui))
+    offset = _tz_offset_min(tz)
+    svc = _services()
+    try:
+        svc.config_downlink.run(dev_eui, {"utc_offset_min": offset}, int(time.time()))
+        svc.panel.update_station(dev_eui, {"utc_offset_min": offset})
+        flash(f"Zona horaria {tz} (UTC{offset / 60:+.0f} h) encolada por LoRa; "
+              "la estación confirmará con CFG_ACK", "ok")
+    except Exception as e:
+        flash(f"No se pudo encolar: {e}", "error")
+    return redirect(url_for("web.station", dev_eui=dev_eui))
 
 
 # --- actions -----------------------------------------------------------------

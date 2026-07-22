@@ -399,12 +399,14 @@ class PanelService:
         forecasts: ForecastRepository,
         uplinks: UplinkLogRepository,
         downlinks: DownlinkLogRepository,
+        ttn: TtnPort | None = None,
     ):
         self._stations = stations
         self._readings = readings
         self._forecasts = forecasts
         self._uplinks = uplinks
         self._downlinks = downlinks
+        self._ttn = ttn
 
     def stations(self) -> list[Station]:
         return self._stations.list_all()
@@ -437,6 +439,37 @@ class PanelService:
                 setattr(st, key, float(patch[key]))
         if "utc_offset_min" in patch:
             st.utc_offset_min = int(patch["utc_offset_min"])
+        self._stations.save(st)
+        return st
+
+    def add_station(
+        self,
+        dev_eui: str,
+        name: str = "",
+        mode: str = "forward",
+        utc_offset_min: int = 0,
+        lat: float = 0.0,
+        lon: float = 0.0,
+        ttn_keys: dict | None = None,
+    ) -> Station:
+        """Register a device ahead of its first uplink. With ttn_keys
+        {dev_eui, join_eui, app_key} the OTAA device is provisioned in TTN first;
+        nothing is stored locally if that provisioning fails."""
+        if self._stations.get(dev_eui):
+            raise StationClaimed(dev_eui)
+        if ttn_keys:
+            if self._ttn is None:
+                raise ValueError("TTN provisioning not available")
+            eui = ttn_keys.get("dev_eui", "").strip().upper()
+            join = ttn_keys.get("join_eui", "").strip().upper()
+            key = ttn_keys.get("app_key", "").strip().upper()
+            for label, value, digits in (("DevEUI", eui, 16), ("JoinEUI", join, 16),
+                                         ("AppKey", key, 32)):
+                if len(value) != digits or any(c not in "0123456789ABCDEF" for c in value):
+                    raise ValueError(f"{label} must be {digits} hex digits")
+            self._ttn.register_device(dev_eui, eui, join, key)
+        st = Station(dev_eui=dev_eui, name=name or dev_eui, mode=mode,
+                     utc_offset_min=utc_offset_min, lat=lat, lon=lon)
         self._stations.save(st)
         return st
 

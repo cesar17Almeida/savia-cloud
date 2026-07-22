@@ -26,7 +26,18 @@
       <div><dt>RSSI / SNR</dt>
         <dd>{% if st.last_rssi is not none %}{{ st.last_rssi }} dBm / {{ st.last_snr }} dB{% else %}—{% endif %}</dd></div>
       <div><dt>Posición</dt><dd>{{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }}</dd></div>
+      <div><dt>Hora local de la estación</dt><dd>{{ station_local_now }} (UTC{{ '%+.0f'|format(st.utc_offset_min / 60) }} h)</dd></div>
     </dl>
+    <form method="post" action="{{ url_for('web.station_timezone', dev_eui=st.dev_eui) }}" class="row">
+      <label>Zona horaria
+        <select name="tz">
+          {% for label, tz in timezones %}
+            <option value="{{ tz }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Aplicar por LoRa</button>
+    </form>
     <form method="post" action="{{ url_for('web.station_meta', dev_eui=st.dev_eui) }}" class="row">
       <label>Nombre <input name="name" value="{{ st.name }}"></label>
       <label>Modo
@@ -86,13 +97,13 @@
 <div class="grid-2">
   <section class="card">
     <h2>Uplinks recibidos</h2>
-    <table>
+    <div class="table-wrap"><table>
       <thead><tr><th>Hora</th><th>Tipo</th><th>Detalle</th><th>Señal</th><th>Payload</th></tr></thead>
       <tbody>
       {% for u, summary in uplinks %}
         <tr>
           <td>{{ u.ts_s | dt(st.utc_offset_min) }}</td>
-          <td><span class="chip">{{ u.u_type }}</span></td>
+          <td><span class="chip chip-{{ u.u_type }}">{{ u.u_type }}</span></td>
           <td>{{ summary }}</td>
           <td>{% if u.rssi is not none %}{{ u.rssi }} / {{ u.snr }}{% else %}—{% endif %}</td>
           <td class="mono payload" title="{{ u.payload_hex }}">{{ u.payload_hex[:24] }}{% if u.payload_hex|length > 24 %}…{% endif %}</td>
@@ -101,18 +112,18 @@
         <tr><td colspan="5" class="muted">Todavía no ha llegado ningún uplink.</td></tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
   </section>
 
   <section class="card">
     <h2>Downlinks enviados</h2>
-    <table>
+    <div class="table-wrap"><table>
       <thead><tr><th>Hora</th><th>Tipo</th><th>Estado</th><th>Payload</th></tr></thead>
       <tbody>
       {% for d in downlinks %}
         <tr>
           <td>{{ d.ts_s | dt(st.utc_offset_min) }}</td>
-          <td><span class="chip">{{ d.kind }}</span></td>
+          <td><span class="chip chip-{{ d.kind }}">{{ d.kind }}</span></td>
           <td>{{ d.status }}</td>
           <td class="mono payload" title="{{ d.payload_hex }}">{{ d.payload_hex[:24] }}{% if d.payload_hex|length > 24 %}…{% endif %}</td>
         </tr>
@@ -120,13 +131,13 @@
         <tr><td colspan="4" class="muted">Sin downlinks todavía.</td></tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
   </section>
 </div>
 
 <section class="card">
   <h2>Lecturas de suelo almacenadas</h2>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Hora (local estación)</th><th>HS10 (VWC)</th><th>HS30 (VWC)</th><th>TA (°C)</th></tr></thead>
     <tbody>
     {% for r in readings %}
@@ -140,6 +151,6 @@
       <tr><td colspan="4" class="muted">Sin lecturas todavía — llegarán con los uplinks SOIL (modo forward).</td></tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </section>
 {% endblock %}

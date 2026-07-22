@@ -43,14 +43,17 @@ class _FakeResp:
 
 @pytest.fixture
 def ttn_capture(monkeypatch):
-    """Capture TTN downlink pushes without hitting the network."""
+    """Capture TTN calls (downlink pushes + device registrations) without network."""
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
-        calls.append({"url": url, "json": json})
-        return _FakeResp(status=200)
+    def _capture(method):
+        def fake(url, json=None, headers=None, timeout=None):
+            calls.append({"method": method, "url": url, "json": json})
+            return _FakeResp(status=200)
+        return fake
 
-    monkeypatch.setattr("app.adapters.ttn.client.requests.post", fake_post)
+    monkeypatch.setattr("app.adapters.ttn.client.requests.post", _capture("post"))
+    monkeypatch.setattr("app.adapters.ttn.client.requests.put", _capture("put"))
     return calls
 
 

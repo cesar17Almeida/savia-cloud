@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Estaciones — Savia Cloud{% endblock %}
 {% block content %}
-<h1>Estaciones</h1>
+<div class="page-head">
+  <h1>Estaciones</h1>
+  <a href="{{ url_for('web.station_new') }}"><button class="primary">Agregar dispositivo</button></a>
+</div>
 {% if not stations %}
-  <p class="muted">Sin estaciones todavía. Aparecerán con su primer uplink LoRa.</p>
+  <p class="muted">Sin estaciones todavía. Aparecerán con su primer uplink LoRa,
+    o da de alta una con «Agregar dispositivo».</p>
 {% endif %}
 <div class="cards">
   {% for st in stations %}

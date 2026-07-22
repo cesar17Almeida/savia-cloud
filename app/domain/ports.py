@@ -19,10 +19,16 @@ from .models import (
 # --- driven ports: outbound integrations -------------------------------------
 
 class TtnPort(ABC):
-    """Outbound port to The Things Network (schedule downlinks)."""
+    """Outbound port to The Things Network (downlinks + device provisioning)."""
 
     @abstractmethod
     def schedule_downlink(self, command: DownlinkCommand) -> None: ...
+
+    @abstractmethod
+    def register_device(self, device_id: str, dev_eui: str, join_eui: str,
+                        app_key: str) -> None:
+        """Provision an OTAA end device in the LNS registries."""
+        ...
 
 
 class ForecastPort(ABC):
