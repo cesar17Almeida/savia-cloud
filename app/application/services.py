@@ -348,10 +348,16 @@ class RunCloudInferenceService:
         pred = self._infer.predict_hs30(ta, hs10, hs30, future_ta)
         self._forecasts.add_run(station.dev_eui, now_s, pred)
 
+        # The stored inference must survive a TTN outage: log the downlink as
+        # failed instead of losing the whole run.
         payload = codec.encode_downlink_time_ta(ta, future_ta, now_s)
         cmd = DownlinkCommand(dev_id=station.dev_eui, f_port=FPORT, payload=payload)
-        self._ttn.schedule_downlink(cmd)
-        self._log.add(station.dev_eui, now_s, "time_ta", payload.hex(), "scheduled")
+        try:
+            self._ttn.schedule_downlink(cmd)
+            status = "scheduled"
+        except Exception as e:
+            status = f"failed: {e}"[:120]
+        self._log.add(station.dev_eui, now_s, "time_ta", payload.hex(), status)
         return pred
 
 
