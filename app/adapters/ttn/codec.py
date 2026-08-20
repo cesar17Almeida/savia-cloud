@@ -44,10 +44,12 @@ CFG_DAILY_HOUR = 0x04
 CFG_LORA_PERIOD_S = 0x05
 CFG_INFERENCE_MODE = 0x06
 CFG_UTC_OFFSET_MIN = 0x07
-CFG_IRRIGATION_HOUR = 0x08
+# 0x08 RETIRED (was irrigation_hour, dropped ago-2026). The id stays burned:
+# renumbering the ones after it would break the firmware and the goldens.
 CFG_LAT = 0x09
 CFG_LON = 0x0A
 CFG_LOG_LEVEL = 0x0B
+CFG_DAILY_MIN = 0x0C
 
 
 # --- decode helpers ----------------------------------------------------------
@@ -176,10 +178,10 @@ _TLV_FIELDS = {
     "lora_period_s":   (CFG_LORA_PERIOD_S, 4, False, _rng(300, 86400)),
     "inference_mode":  (CFG_INFERENCE_MODE, 1, False, _rng(0, 1)),
     "utc_offset_min":  (CFG_UTC_OFFSET_MIN, 2, True, _rng(-720, 840)),
-    "irrigation_hour": (CFG_IRRIGATION_HOUR, 1, False, _rng(0, 23)),
     "lat":             (CFG_LAT, 4, True, _rng(-900000000, 900000000)),
     "lon":             (CFG_LON, 4, True, _rng(-1800000000, 1800000000)),
     "log_level":       (CFG_LOG_LEVEL, 1, False, _rng(0, 2)),
+    "daily_min":       (CFG_DAILY_MIN, 1, False, _rng(0, 59)),
 }
 
 # Deterministic emit order (ascending field id) so the frame is testable.
@@ -188,9 +190,8 @@ _TLV_ORDER = sorted(_TLV_FIELDS, key=lambda k: _TLV_FIELDS[k][0])
 
 def encode_config_patch_tlv(fields: dict) -> bytes:
     """Encode a CONFIG downlink from a patch dict. Keys: sleep_s, deep_sleep,
-    capture_s, daily_hour, lora_period_s, inference_mode, utc_offset_min,
-    irrigation_hour, lat, lon, log_level. lat/lon are degrees (scaled x1e-7 on the
-    wire). Ranges are validated BEFORE encoding; out-of-range raises ValueError."""
+    capture_s, daily_hour, daily_min, lora_period_s, inference_mode, utc_offset_min,
+    lat, lon, log_level. lat/lon are degrees (scaled x1e-7 on the wire). Ranges are validated BEFORE encoding; out-of-range raises ValueError."""
     unknown = set(fields) - set(_TLV_FIELDS)
     if unknown:
         raise ValueError(f"unknown config field(s): {sorted(unknown)}")

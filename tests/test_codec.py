@@ -73,15 +73,24 @@ def test_time_ta_rejects_oversized_window():
 def test_config_tlv_golden():
     frame = codec.encode_config_patch_tlv({
         "sleep_s": 600, "daily_hour": 21, "inference_mode": 1,
-        "utc_offset_min": 120, "irrigation_hour": 6,
+        "utc_offset_min": 120,
     })
-    # ascending field id: sleep_s(01) daily_hour(04) inference_mode(06) offset(07) irrigation(08)
-    assert frame == hexb("02 02 01 04 00 00 02 58 04 01 15 06 01 01 07 02 00 78 08 01 06")
+    # ascending field id: sleep_s(01) daily_hour(04) inference_mode(06) offset(07)
+    assert frame == hexb("02 02 01 04 00 00 02 58 04 01 15 06 01 01 07 02 00 78")
 
 
 def test_config_tlv_coords_golden():
     frame = codec.encode_config_patch_tlv({"lat": 39.4699750, "lon": -0.3762881})
     assert frame == hexb("02 02 09 04 17 86 A3 E6 0A 04 FF C6 95 3F")
+
+
+def test_config_tlv_daily_min_golden():
+    # daily_min is its own field (0x0C), so a patch that only sets the hour still
+    # produces the frame above -- the goldens shared with the firmware are unchanged.
+    assert codec.encode_config_patch_tlv({"daily_min": 30}) == hexb("02 02 0C 01 1E")
+    # Emitted last: TLVs go in ascending field id and 0x0C follows log_level (0x0B).
+    frame = codec.encode_config_patch_tlv({"daily_hour": 21, "daily_min": 30})
+    assert frame == hexb("02 02 04 01 15 0C 01 1E")
 
 
 def test_config_tlv_negative_offset():
@@ -97,7 +106,7 @@ def test_config_tlv_negative_offset():
     {"capture_s": 30},           # < 60
     {"lora_period_s": 100},      # < 300
     {"daily_hour": 24},          # > 23
-    {"irrigation_hour": 24},     # > 23
+    {"daily_min": 60},           # > 59
     {"utc_offset_min": -800},    # < -720
     {"utc_offset_min": 900},     # > 840
     {"inference_mode": 2},       # not 0/1
@@ -113,6 +122,7 @@ def test_config_tlv_out_of_range_raises(fields):
     {"sleep_s": 10}, {"sleep_s": 86400},
     {"capture_s": 60}, {"lora_period_s": 300},
     {"daily_hour": 0}, {"daily_hour": 23},
+    {"daily_min": 0}, {"daily_min": 59},
     {"utc_offset_min": -720}, {"utc_offset_min": 840},
 ])
 def test_config_tlv_boundaries_ok(fields):

@@ -222,8 +222,9 @@ def station_timezone(dev_eui: str):
 # Config fields sent as LoRa TLVs; (form name, cast). Empty inputs are skipped.
 _CFG_FIELDS = [
     ("sleep_s", int), ("deep_sleep", int), ("capture_s", int), ("daily_hour", int),
+    ("daily_min", int),
     ("lora_period_s", int), ("inference_mode", int), ("utc_offset_min", int),
-    ("irrigation_hour", int), ("lat", float), ("lon", float), ("log_level", int),
+    ("lat", float), ("lon", float), ("log_level", int),
 ]
 # TLV fields mirrored into the station row so cron gating/UI stay in sync.
 _DB_MIRROR = {"utc_offset_min", "lat", "lon"}
