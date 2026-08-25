@@ -46,7 +46,15 @@ FPORT = 8
 HOUR_S = 3600
 PAST_STEPS = 48
 FUTURE_STEPS = 24
+# Admission guards for the LSTM window. The firmware applies the SAME THREE guards
+# (savia_c lstm_input.h) so a window is judged by one policy wherever it runs. Two of
+# the thresholds are identical on both sides; MAX_NEWEST_AGE_H is deliberately looser
+# here: the station samples right before inferring and can demand a fresh bucket,
+# while readings reach the backend by radio, late and with a backlog, so requiring a
+# real reading in the very hour being inferred would stop FORWARD mode almost always.
 MAX_SOIL_GAP_H = 6              # >6 contiguous missing soil hours -> refuse
+MIN_REAL_HOURS = 24             # real hourly buckets needed inside the 48 h window
+MAX_NEWEST_AGE_H = 2            # how old the newest REAL bucket may be (firmware: 0)
 SESSION_TTL_S = 30 * 86400     # bearer token lifetime: 30 days
 
 
@@ -73,9 +81,10 @@ def build_lstm_window(
     forecast: Forecast,
     now_s: int,
 ) -> tuple[list[float], list[float], list[float], list[float]]:
-    """Assemble (ta, hs10, hs30, future_ta) for the 48 h window ending at the hour
-    of now_s. TA gaps are filled from the Open-Meteo past; soil gaps LOCF; a
-    contiguous soil gap longer than MAX_SOIL_GAP_H raises InsufficientData."""
+    """Assemble (ta, hs10, hs30, future_ta) for the 48 h window ending at the hour of
+    now_s. TA gaps are filled from the Open-Meteo past and soil gaps LOCF, but only
+    after the window clears the three admission guards (coverage, freshness,
+    continuity); any of them failing raises InsufficientData."""
     latest_hour = now_s - (now_s % HOUR_S)
     hours = [latest_hour - (PAST_STEPS - 1 - i) * HOUR_S for i in range(PAST_STEPS)]
     by_hour = {r.ts_hour_s: r for r in readings}
@@ -95,6 +104,24 @@ def build_lstm_window(
         else:
             ta_raw.append(forecast.past_ta[i] if i < len(forecast.past_ta) else None)
 
+    # Guard 1 -- coverage: LOCF is meant to bridge a missed hour, not to manufacture
+    # two days of history out of a handful of samples.
+    real = sum(soil_present)
+    if real < MIN_REAL_HOURS:
+        raise InsufficientData(
+            f"only {real} real soil hours in the window, {MIN_REAL_HOURS} needed"
+        )
+
+    # Guard 2 -- freshness: a copy in the newest buckets forecasts from soil that may
+    # no longer exist (a shower or an irrigation inside the copied span is invisible).
+    newest_age = next((i for i, p in enumerate(reversed(soil_present)) if p), PAST_STEPS)
+    if newest_age > MAX_NEWEST_AGE_H:
+        raise InsufficientData(
+            f"newest real soil reading is {newest_age} h old, max {MAX_NEWEST_AGE_H} h"
+        )
+
+    # Guard 3 -- continuity: the longer a copied span, the likelier it hides a
+    # discrete event the model never sees.
     gap = worst = 0
     for present in soil_present:
         gap = 0 if present else gap + 1

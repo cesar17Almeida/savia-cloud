@@ -3,7 +3,13 @@ insufficient-data guard. No interpreter / network needed."""
 import pytest
 
 from app.application.errors import InsufficientData
-from app.application.services import HOUR_S, PAST_STEPS, build_lstm_window
+from app.application.services import (
+    HOUR_S,
+    MAX_NEWEST_AGE_H,
+    MIN_REAL_HOURS,
+    PAST_STEPS,
+    build_lstm_window,
+)
 from app.domain.models import Forecast, SoilReading
 
 NOW = 1782000000                       # an exact hour boundary
@@ -57,3 +63,38 @@ def test_gap_over_six_hours_raises():
 def test_no_soil_at_all_raises():
     with pytest.raises(InsufficientData):
         build_lstm_window([], FORECAST, NOW)
+
+
+# --- admission guards (same three the firmware applies) ----------------------
+
+# Every other hour real: exactly MIN_REAL_HOURS buckets, no gap longer than 1 h and
+# the newest bucket real -- isolates the coverage guard from the other two.
+_ALTERNATE = tuple(range(0, PAST_STEPS, 2))          # skip the even hours
+
+
+def test_below_coverage_floor_raises():
+    """Too few real hours: LOCF would manufacture the window out of a handful of
+    samples, so gathering fails instead."""
+    skip = _ALTERNATE + (1,)                          # one below the floor
+    with pytest.raises(InsufficientData, match="real soil hours"):
+        build_lstm_window(_readings(skip=skip), FORECAST, NOW)
+
+
+def test_coverage_floor_exactly_met_passes():
+    _, _, hs30, _ = build_lstm_window(_readings(skip=_ALTERNATE), FORECAST, NOW)
+    assert len(hs30) == PAST_STEPS
+    assert hs30[0] == 0.70            # leading gap back-filled from the first real one
+
+
+def test_stale_newest_bucket_raises():
+    """The newest buckets are copies: the forecast would start from soil that may no
+    longer exist."""
+    stale = tuple(range(PAST_STEPS - (MAX_NEWEST_AGE_H + 1), PAST_STEPS))
+    with pytest.raises(InsufficientData, match="newest real soil reading"):
+        build_lstm_window(_readings(skip=stale), FORECAST, NOW)
+
+
+def test_newest_bucket_within_tolerance_passes():
+    stale = tuple(range(PAST_STEPS - MAX_NEWEST_AGE_H, PAST_STEPS))
+    _, _, hs30, _ = build_lstm_window(_readings(skip=stale), FORECAST, NOW)
+    assert hs30[-1] == 0.70           # carried forward from the last real hour
