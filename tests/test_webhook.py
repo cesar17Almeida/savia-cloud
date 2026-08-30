@@ -12,6 +12,7 @@ SOIL_FRAME = bytes.fromhex(
     "6A 37 37 90 FF FF 02 E5 FF E7".replace(" ", "")
 )
 COORDS_FRAME = bytes.fromhex("02 03 17 86 A3 E6 FF C6 95 3F 00 78".replace(" ", ""))
+BOOT_FRAME = bytes.fromhex("02 06 6A 45 01 40".replace(" ", ""))
 
 
 def _ttn_body(dev="EUI-W", payload=SOIL_FRAME):
@@ -91,3 +92,17 @@ def test_uplink_queues_clock_sync_at_most_every_6h(client, ttn_capture):
 
     client.post("/ttn/uplink", json=body, headers={"X-Webhook-Token": WEBHOOK_SECRET})
     assert len(ttn_capture) == 1                      # still just one
+
+
+def test_boot_uplink_forces_clock_sync(client, ttn_capture):
+    """A BOOT frame is the node's first uplink after power-up: it has no clock, so
+    the backend answers with the time in that RX window even if a sync went out
+    minutes ago."""
+    import base64 as b64
+    hdr = {"X-Webhook-Token": WEBHOOK_SECRET}
+    client.post("/ttn/uplink", json=_ttn_body(), headers=hdr)
+    assert len(ttn_capture) == 1                      # routine 6 h sync
+    client.post("/ttn/uplink", json=_ttn_body(payload=BOOT_FRAME), headers=hdr)
+    assert len(ttn_capture) == 2                      # boot bypasses the gap
+    payload = b64.b64decode(ttn_capture[1]["json"]["downlinks"][0]["frm_payload"])
+    assert payload[:2] == bytes([0x02, 0x01]) and len(payload) == 8

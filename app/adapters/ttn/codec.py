@@ -11,6 +11,9 @@ Uplinks (node -> backend), decoded here:
                  hs30 u16 x1000 | ta i16 x10 (0xFFFF/0x7FFF = missing)
   0x03 COORDS    lat i32 x1e-7 | lon i32 x1e-7 | utc_offset_min i16
   0x04 CFG_ACK   applied u8 | rejected u8
+  0x05 (reserved: generic per-channel uplink, not implemented)
+  0x06 BOOT      [2..5] lkg_epoch_s u32 (0 = none): first frame after power-up,
+                 the node asks for the clock in this RX window
 
 Downlinks (backend -> node), encoded here:
   0x01 TIME_TA   clock u32 epoch s (0 = none) | n_past u8 | n_future u8 |
@@ -26,6 +29,7 @@ UP_FORECAST = 0x01
 UP_SOIL = 0x02
 UP_COORDS = 0x03
 UP_CFG_ACK = 0x04
+UP_BOOT = 0x06        # 0x05 stays reserved for the generic uplink
 DN_TIME_TA = 0x01
 DN_CONFIG = 0x02
 
@@ -86,6 +90,7 @@ def decode_uplink(data: bytes) -> dict:
       {"type": "soil", "records": [{"ts_hour_s", "hs10", "hs30", "ta"}, ...]}
       {"type": "coords", "lat", "lon", "utc_offset_min"}
       {"type": "cfg_ack", "applied", "rejected"}
+      {"type": "boot", "lkg_epoch_s": int|None}
     Raises ValueError on a malformed / unknown frame.
     """
     if len(data) < 2 or data[0] != VERSION:
@@ -130,6 +135,12 @@ def decode_uplink(data: bytes) -> dict:
         if len(data) < 4:
             raise ValueError("short cfg_ack uplink")
         return {"type": "cfg_ack", "applied": data[2], "rejected": data[3]}
+
+    if mtype == UP_BOOT:
+        if len(data) < 6:
+            raise ValueError("short boot uplink")
+        lkg = _u32(data[2:6])
+        return {"type": "boot", "lkg_epoch_s": lkg or None}
 
     raise ValueError(f"unknown uplink type 0x{mtype:02X}")
 

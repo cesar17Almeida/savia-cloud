@@ -41,6 +41,11 @@ def test_cfg_ack_golden():
     }
 
 
+def test_boot_golden():
+    assert codec.decode_uplink(hexb("02 06 6A 45 01 40")) == {"type": "boot", "lkg_epoch_s": 1782907200}
+    assert codec.decode_uplink(hexb("02 06 00 00 00 00")) == {"type": "boot", "lkg_epoch_s": None}
+
+
 def test_decode_rejects_bad_version_and_unknown_type():
     with pytest.raises(ValueError):
         codec.decode_uplink(hexb("01 01 00 00"))     # old wire version

@@ -100,6 +100,11 @@ def _summary(u_type: str, payload_hex: str) -> str:
         return f"lat {d['lat']:.5f}, lon {d['lon']:.5f}, offset {d['utc_offset_min']} min"
     if u_type == "cfg_ack":
         return f"{d['applied']} aplicados, {d['rejected']} rechazados"
+    if u_type == "boot":
+        lkg = d.get("lkg_epoch_s")
+        if not lkg:
+            return "arranque sin hora de referencia"
+        return "arranque; última hora fiable " + time.strftime("%Y-%m-%d %H:%M", time.gmtime(lkg)) + " UTC"
     return "—"
 
 

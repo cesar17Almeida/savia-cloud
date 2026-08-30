@@ -240,7 +240,9 @@ TIME_SYNC_GAP_S = 6 * 3600
 class IngestUplinkService:
     """Persist a decoded uplink: raw log + soil records + coords + link quality.
     Also keeps the station clock fresh: if no time_ta downlink went out in the
-    last TIME_SYNC_GAP_S, queue a pure 8-byte clock sync for the next RX window."""
+    last TIME_SYNC_GAP_S, queue a pure 8-byte clock sync for the next RX window.
+    A BOOT uplink (the node's first frame after power-up) queues it unconditionally:
+    the node has no clock and that RX window is its first chance to get one."""
 
     def __init__(
         self,
@@ -288,17 +290,18 @@ class IngestUplinkService:
             st.lat = decoded["lat"]
             st.lon = decoded["lon"]
             st.utc_offset_min = decoded["utc_offset_min"]
-        # forecast / cfg_ack: only the link-quality + last_uplink_at update above.
+        # forecast / cfg_ack / boot: only the link-quality + last_uplink_at update above.
         self._stations.save(st)
-        self._maybe_queue_clock_sync(dev_eui, at_s)
+        self._maybe_queue_clock_sync(dev_eui, at_s, force=(kind == "boot"))
 
-    def _maybe_queue_clock_sync(self, dev_eui: str, at_s: int) -> None:
-        """Keep the station clock fresh without violating TTN fair use."""
+    def _maybe_queue_clock_sync(self, dev_eui: str, at_s: int, force: bool = False) -> None:
+        """Keep the station clock fresh without violating TTN fair use. `force`
+        (a BOOT frame) skips the gap check: the node just powered up clockless."""
         if self._ttn is None or self._downlinks is None:
             return
         recent = self._downlinks.list_recent(dev_eui, 10)
         last = next((d.ts_s for d in recent if d.kind == "time_ta"), None)
-        if last is not None and at_s - last < TIME_SYNC_GAP_S:
+        if not force and last is not None and at_s - last < TIME_SYNC_GAP_S:
             return
         payload = codec.encode_downlink_time_ta([], [], at_s)   # 8 B pure clock
         cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
