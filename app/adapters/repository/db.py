@@ -1,5 +1,9 @@
-"""Engine + session factory. A shared in-memory engine (StaticPool) keeps tests
-on a single connection so the schema survives between requests."""
+"""Engine + session factory.
+
+Production runs on PostgreSQL (DATABASE_URL=postgresql+psycopg://...). The
+sqlite in-memory URL is kept for the test suite only: a shared StaticPool engine
+keeps every test on one connection so the schema survives between requests.
+"""
 from __future__ import annotations
 
 from sqlalchemy import create_engine
@@ -17,7 +21,11 @@ def make_sessionmaker(db_url: str) -> sessionmaker:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-    else:
+    elif db_url.startswith("sqlite"):
         engine = create_engine(db_url, connect_args={"check_same_thread": False})
+    else:
+        # PostgreSQL: pre-ping drops stale pooled connections after a server restart
+        # instead of failing the first request with them.
+        engine = create_engine(db_url, pool_pre_ping=True)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)

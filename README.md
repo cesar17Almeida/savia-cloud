@@ -16,7 +16,7 @@ app/
     ttn/           codec.py (payload wire v2, = firmware) + client.py (downlink AS API)
     openmeteo/     client.py (pronóstico TA horario)
     inference/     lstm.py (mismo modelo int8 que embebe el firmware)
-    repository/    orm.py + db.py + sqlite.py (SQLAlchemy) ; memory.py (tests sin BD)
+    repository/    orm.py + db.py + sql.py (SQLAlchemy sobre PostgreSQL) ; memory.py (tests sin BD)
   interfaces/http/ Adaptador conductor: rutas Flask (routes.py)
   factory.py       create_app(): composition root, cablea adaptadores en servicios
 config.py          Settings desde entorno
@@ -108,8 +108,15 @@ llamada, cada estación *forward* corre su inferencia cuando su **hora local**
 
 ## Persistencia
 
-SQLAlchemy 2 + SQLite (`DATABASE_URL`, por defecto `sqlite:///savia.db`; los tests
-usan `:memory:`). Las tablas se crean al arrancar (`create_all`) — suficiente para el
-alcance del TFM; una migración formal (Alembic) queda fuera de alcance. Tablas:
-`users`, `sessions`, `stations`, `soil_readings` (PK compuesta, *upsert*),
-`forecasts`, `downlink_log`.
+SQLAlchemy 2 sobre **PostgreSQL** (`DATABASE_URL`; por defecto
+`postgresql+psycopg://savia@/savia?host=/var/run/postgresql`, es decir, servidor local
+por socket Unix con autenticación *peer*: el usuario del sistema `savia` es el rol de la
+base de datos y no hay contraseña en el entorno). Los tests usan un motor SQLite en
+memoria por defecto; con `TEST_DATABASE_URL=postgresql+psycopg://...` la suite completa
+corre contra un PostgreSQL real (esquema recreado en cada test). Las tablas se crean al
+arrancar (`create_all`) — suficiente para el alcance del TFM; una migración formal
+(Alembic) queda fuera de alcance. Tablas: `users`, `sessions`, `stations`,
+`soil_readings` (PK compuesta, *upsert*), `forecasts`, `uplink_log`, `downlink_log`.
+
+Migrar un despliegue anterior en SQLite: `tools/migrate_sqlite_to_postgres.py --sqlite
+<fichero.db> --pg <URL>` copia todas las tablas y reajusta las secuencias.

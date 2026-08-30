@@ -1,7 +1,16 @@
-"""Shared fixtures: an in-memory app and stubs so no test touches the network."""
+"""Shared fixtures: an in-memory app and stubs so no test touches the network.
+
+Set TEST_DATABASE_URL (e.g. postgresql+psycopg://postgres@127.0.0.1:55432/savia_test)
+to run the whole suite against a real PostgreSQL; every test then starts from a
+dropped-and-recreated schema. Without it the suite uses a private in-memory SQLite
+engine per test, which needs no server.
+"""
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+from app.adapters.repository.orm import Base
 
 from app.factory import create_app
 from config import Settings
@@ -10,10 +19,26 @@ WEBHOOK_SECRET = "wsecret"
 CRON_SECRET = "csecret"
 
 
+TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "sqlite://")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_schema():
+    """On PostgreSQL, drop and recreate the schema before each test."""
+    if TEST_DB_URL.startswith("sqlite"):
+        yield
+        return
+    from sqlalchemy import create_engine
+    engine = create_engine(TEST_DB_URL)
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+    yield
+
+
 @pytest.fixture
 def settings():
     return Settings(
-        db_url="sqlite://",             # shared in-memory engine (StaticPool)
+        db_url=TEST_DB_URL,             # sqlite:// = private in-memory engine (StaticPool)
         webhook_secret=WEBHOOK_SECRET,
         cron_secret=CRON_SECRET,
         default_lat=39.47,

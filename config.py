@@ -14,8 +14,10 @@ class Settings:
     # Default station location for the forecast (overridable per station).
     default_lat: float = 39.47
     default_lon: float = -0.38
-    # Persistence. sqlite:///savia.db by default; tests pass sqlite:// (:memory:).
-    db_url: str = "sqlite:///savia.db"
+    # Persistence: PostgreSQL. The default reaches a local server over its Unix
+    # socket with peer authentication (OS user == role), so no password travels
+    # through the environment; tests pass sqlite:// (in-memory) explicitly.
+    db_url: str = "postgresql+psycopg://savia@/savia?host=/var/run/postgresql"
     # Shared secrets for the machine-to-machine endpoints (empty = auth disabled).
     webhook_secret: str = ""   # TTN webhook -> POST /ttn/uplink (X-Webhook-Token)
     cron_secret: str = ""      # external scheduler -> POST /cron/daily (X-Cron-Token)

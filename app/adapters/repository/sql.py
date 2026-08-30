@@ -1,5 +1,6 @@
-"""SQLite/SQLAlchemy implementations of the persistence ports. Each method opens a
-short session, commits, and maps rows back to plain domain dataclasses."""
+"""SQLAlchemy implementations of the persistence ports (PostgreSQL in production;
+the dialect is a deployment detail of db.py). Each method opens a short session,
+commits, and maps rows back to plain domain dataclasses."""
 from __future__ import annotations
 
 from sqlalchemy import select

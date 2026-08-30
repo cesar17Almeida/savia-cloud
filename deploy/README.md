@@ -42,6 +42,25 @@ scp docs/sensor_documentation/model/modelo_lstm/lstm_hs30_int8_pt.tflite \
     'sudo mv /tmp/lstm_hs30_int8_pt.tflite /opt/savia-cloud/models/'
 ```
 
+## 3b. PostgreSQL (misma instancia, socket Unix)
+
+```sh
+sudo dnf install -y postgresql15-server
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+sudo -u postgres psql -c "CREATE ROLE savia LOGIN" -c "CREATE DATABASE savia OWNER savia"
+```
+
+El servicio corre como el usuario del sistema `savia`, que coincide con el rol, así que la
+autenticación *peer* por socket (`/var/run/postgresql`) no necesita contraseña:
+`DATABASE_URL=postgresql+psycopg://savia@/savia?host=/var/run/postgresql`. Las tablas las
+crea la aplicación al arrancar. Para migrar un despliegue previo en SQLite:
+
+```sh
+cd /opt/savia-cloud && sudo -u savia .venv/bin/python tools/migrate_sqlite_to_postgres.py \
+  --sqlite /var/lib/savia-cloud/savia.db --pg "postgresql+psycopg://savia@/savia?host=/var/run/postgresql"
+```
+
 ## 4. Configuración
 
 ```sh

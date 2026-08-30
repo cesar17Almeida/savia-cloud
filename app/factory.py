@@ -1,8 +1,8 @@
 """Flask application factory and composition root.
 
 The ONLY place concrete adapters are chosen: it wires the driven adapters (TTN,
-Open-Meteo, LSTM, SQLite repositories) into the application services and hands them
-to the HTTP layer. Domain and application code depend on ports (interfaces) only.
+Open-Meteo, LSTM, SQL repositories over PostgreSQL) into the application services
+and hands them to the HTTP layer. Domain and application code depend on ports (interfaces) only.
 """
 from flask import Flask, redirect
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -12,7 +12,7 @@ from config import Settings
 from .adapters.inference.lstm import LstmInference
 from .adapters.openmeteo.client import OpenMeteoForecast
 from .adapters.repository.db import make_sessionmaker
-from .adapters.repository.sqlite import (
+from .adapters.repository.sql import (
     SqlDownlinkLogRepository,
     SqlForecastRepository,
     SqlReadingRepository,
