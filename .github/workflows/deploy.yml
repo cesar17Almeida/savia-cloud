@@ -27,6 +27,7 @@ jobs:
           rsync -az --delete \
             --exclude .git --exclude .github --exclude .venv \
             --exclude models --exclude __pycache__ --exclude .pytest_cache \
+            --exclude .gunicorn \
             -e "ssh -i ~/.ssh/deploy_key" \
             ./ ec2-user@${{ secrets.DEPLOY_HOST }}:/opt/savia-cloud/
 
