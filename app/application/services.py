@@ -8,6 +8,9 @@ from typing import Callable
 
 from ..adapters.ttn import codec
 from ..domain.models import (
+    DL_APPLIED,
+    DL_FAILED,
+    DL_QUEUED,
     DownlinkCommand,
     DownlinkRecord,
     Forecast,
@@ -290,7 +293,11 @@ class IngestUplinkService:
             st.lat = decoded["lat"]
             st.lon = decoded["lon"]
             st.utc_offset_min = decoded["utc_offset_min"]
-        # forecast / cfg_ack / boot: only the link-quality + last_uplink_at update above.
+        elif kind == "cfg_ack" and self._downlinks is not None:
+            self._downlinks.confirm_latest(dev_eui, "config", "{}: {} aplicados, {} rechazados"
+                                           .format(DL_APPLIED, decoded.get("applied", 0),
+                                                   decoded.get("rejected", 0)))
+        # forecast / boot: only the link-quality + last_uplink_at update above.
         self._stations.save(st)
         self._maybe_queue_clock_sync(dev_eui, at_s, force=(kind == "boot"))
 
@@ -307,9 +314,9 @@ class IngestUplinkService:
         cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
         try:
             self._ttn.schedule_downlink(cmd)
-            status = "scheduled"
+            status = DL_QUEUED
         except Exception as e:
-            status = f"failed: {e}"[:120]
+            status = f"{DL_FAILED}: {e}"[:200]
         self._downlinks.add(dev_eui, at_s, "time_ta", payload.hex(), status)
 
 
@@ -369,8 +376,12 @@ class ConfigDownlinkService:
     def run(self, dev_eui: str, fields: dict, now_s: int) -> DownlinkCommand:
         payload = codec.encode_config_patch_tlv(fields)   # validates ranges, may raise
         cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
-        self._ttn.schedule_downlink(cmd)
-        self._log.add(dev_eui, now_s, "config", payload.hex(), "scheduled")
+        try:
+            self._ttn.schedule_downlink(cmd)
+        except Exception as e:
+            self._log.add(dev_eui, now_s, "config", payload.hex(), f"{DL_FAILED}: {e}"[:200])
+            raise
+        self._log.add(dev_eui, now_s, "config", payload.hex(), DL_QUEUED)
         return cmd
 
 
@@ -486,6 +497,17 @@ class PanelService:
 
     def latest_forecast(self, dev_eui: str) -> ForecastRun | None:
         return self._forecasts.latest_run(dev_eui)
+
+    def config_state(self, dev_eui: str) -> dict | None:
+        """Drift between the stored config and the station: the newest config
+        downlink when it is still queued or failed, None once the node acked it."""
+        for d in self._downlinks.list_recent(dev_eui, 25):
+            if d.kind != "config":
+                continue
+            if d.state == DL_APPLIED:
+                return None
+            return {"state": d.state, "ts_s": d.ts_s, "detail": d.status}
+        return None
 
     def update_station(self, dev_eui: str, patch: dict) -> Station:
         st = self.station(dev_eui)

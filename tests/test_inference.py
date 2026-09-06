@@ -75,6 +75,9 @@ class _Log(DownlinkLogRepository):
     def list_recent(self, dev_eui, limit):  # unused here
         return []
 
+    def confirm_latest(self, dev_eui, kind, status):  # unused here
+        return False
+
 
 def test_forward_inference_runs_and_schedules_downlink():
     forecasts, ttn, log = _Forecasts(), _Ttn(), _Log()

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from ...domain.models import (
+    DL_QUEUED,
     DownlinkRecord,
     ForecastRun,
     Session,
@@ -212,6 +213,22 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
             ).all()
             return [DownlinkRecord(r.dev_eui, r.ts_s, r.kind, r.payload_hex, r.status)
                     for r in rows]
+
+    def confirm_latest(self, dev_eui: str, kind: str, status: str) -> bool:
+        with self._sm() as s:
+            row = s.scalars(
+                select(orm.DownlinkLogRow)
+                .where(orm.DownlinkLogRow.dev_eui == dev_eui,
+                       orm.DownlinkLogRow.kind == kind,
+                       orm.DownlinkLogRow.status == DL_QUEUED)
+                .order_by(orm.DownlinkLogRow.id.desc())
+                .limit(1)
+            ).first()
+            if row is None:
+                return False
+            row.status = status
+            s.commit()
+            return True
 
 
 class SqlUplinkLogRepository(UplinkLogRepository):

@@ -132,6 +132,12 @@ class DownlinkLogRepository(ABC):
         """Latest scheduled downlinks, newest first."""
         ...
 
+    @abstractmethod
+    def confirm_latest(self, dev_eui: str, kind: str, status: str) -> bool:
+        """Close the newest still-queued downlink of that kind (the node acked it).
+        False when there was nothing waiting."""
+        ...
+
 
 class UplinkLogRepository(ABC):
     """Raw history of received uplinks (payload + decoded type + link quality)."""

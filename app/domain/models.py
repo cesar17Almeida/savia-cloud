@@ -73,6 +73,14 @@ class UplinkRecord:
     snr: float | None
 
 
+# downlink_log.status lifecycle. A config only reaches the node in its next RX
+# window, so "queued at TTN" and "applied by the node" are different facts and the
+# panel must never conflate them. Kept as the literal already in the DB.
+DL_QUEUED = "scheduled"    # accepted by the TTN queue, not yet heard by the node
+DL_APPLIED = "applied"     # the node answered with CFG_ACK
+DL_FAILED = "failed"       # the push to TTN itself failed; nothing left the cloud
+
+
 @dataclass(frozen=True)
 class DownlinkRecord:
     """One scheduled downlink as logged."""
@@ -81,6 +89,11 @@ class DownlinkRecord:
     kind: str
     payload_hex: str
     status: str
+
+    @property
+    def state(self) -> str:
+        """First token of status: DL_QUEUED / DL_APPLIED / DL_FAILED."""
+        return self.status.split(":", 1)[0].strip()
 
 
 @dataclass(frozen=True)

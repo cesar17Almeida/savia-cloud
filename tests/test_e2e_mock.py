@@ -195,8 +195,12 @@ def test_config_downlink_and_ack_roundtrip(client, ttn_capture):
     assert _post_uplink(client, ack).status_code == 200
     ups = svc.panel.uplinks(DEV, limit=1)
     assert ups[0].u_type == "cfg_ack"
+    # The ACK closes the loop: the queued config is marked applied, and the panel
+    # stops reporting drift between the stored config and the node.
     dls = svc.panel.downlinks(DEV, limit=1)
-    assert dls[0].kind == "config" and dls[0].status == "scheduled"
+    assert dls[0].kind == "config" and dls[0].state == "applied"
+    assert "2 aplicados, 0 rechazados" in dls[0].status
+    assert svc.panel.config_state(DEV) is None
 
 
 # --- 7. TTN outage resilience ------------------------------------------------
