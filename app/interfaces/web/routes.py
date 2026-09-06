@@ -21,9 +21,12 @@ from flask import (
     url_for,
 )
 
+from werkzeug.exceptions import HTTPException
+
 from ...adapters.ttn import codec
 from ...application.errors import AppError, InsufficientData, Unauthorized
 from ...application.services import Services
+from ...domain.models import DL_APPLIED, DL_FAILED, DL_QUEUED
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -90,6 +93,57 @@ def _gate():
     return None
 
 
+# Downlink lifecycle as shown in the panel.
+_DL_LABEL = {DL_QUEUED: "en cola", DL_APPLIED: "aplicada", DL_FAILED: "no enviada"}
+
+
+@bp.app_template_filter("dl_state")
+def _dl_state(status: str) -> str:
+    """Lifecycle token of a logged downlink status ('applied: 8 ok' -> 'applied')."""
+    return status.split(":", 1)[0].strip()
+
+
+@bp.app_template_filter("dl_label")
+def _dl_label(status: str) -> str:
+    return _DL_LABEL.get(_dl_state(status), status)
+
+
+@bp.app_template_filter("dl_detail")
+def _dl_detail(status: str) -> str:
+    """The stored status, minus its lifecycle token, in operator language."""
+    _, _, rest = status.partition(":")
+    return _humanize(rest.strip() or status)
+
+
+def _human(e: Exception) -> str:
+    return _humanize(str(e) or e.__class__.__name__)
+
+
+def _humanize(text: str) -> str:
+    """Operator-facing one-liner. Never a traceback, never a raw provider dump."""
+    if "401" in text or "unauthenticated" in text:
+        return ("TTN rechazó la petición (401): la API key del backend no es válida "
+                "o no tiene permiso de downlink. Revisa TTN_API_KEY en el servidor.")
+    if "403" in text or "permission" in text:
+        return "TTN rechazó la petición (403): la API key no tiene ese permiso."
+    return text[:240]
+
+
+@bp.errorhandler(Exception)
+def _panel_error(e):
+    """Last resort: nothing unhandled ever renders as a stack trace."""
+    if isinstance(e, HTTPException):
+        return e
+    current_app.logger.exception("panel error on %s %s", request.method, request.path)
+    flash(_human(e), "error")
+    dev_eui = (request.view_args or {}).get("dev_eui")
+    if request.method == "POST" and dev_eui:
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
+    if request.endpoint != "web.dashboard":
+        return redirect(url_for("web.dashboard"))
+    return render_template("base.html"), 500
+
+
 def _summary(u_type: str, payload_hex: str) -> str:
     """Human one-liner for a logged uplink payload."""
     try:
@@ -148,7 +202,7 @@ def password():
             flash("Contraseña actualizada", "ok")
             return redirect(url_for("web.dashboard"))
         except AppError as e:
-            flash(f"No se pudo cambiar: {e}", "error")
+            flash(f"No se pudo cambiar: {_human(e)}", "error")
     return render_template("password.html")
 
 
@@ -184,8 +238,8 @@ def station_new():
         except AppError:
             flash(f"El dispositivo '{dev_id}' ya existe", "error")
             return render_template("station_new.html", timezones=TIMEZONES, form=f)
-        except (ValueError, RuntimeError) as e:
-            flash(f"No se pudo dar de alta: {e}", "error")
+        except Exception as e:
+            flash(f"No se pudo dar de alta: {_human(e)}", "error")
             return render_template("station_new.html", timezones=TIMEZONES, form=f)
         flash("Dispositivo dado de alta" +
               (" y aprovisionado en TTN" if ttn_keys else ""), "ok")
@@ -218,6 +272,7 @@ def station(dev_eui: str):
         downlinks=svc.panel.downlinks(dev_eui),
         readings=svc.panel.readings(dev_eui),
         forecast=svc.panel.latest_forecast(dev_eui),
+        config_state=svc.panel.config_state(dev_eui),
         tab=tab,
     )
 
@@ -237,7 +292,7 @@ def station_timezone(dev_eui: str):
         flash(f"Zona horaria {tz} (UTC{offset / 60:+.0f} h) encolada por LoRa; "
               "la estación confirmará con CFG_ACK", "ok")
     except Exception as e:
-        flash(f"No se pudo encolar: {e}", "error")
+        flash(f"No se pudo encolar: {_human(e)}", "error")
     return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
@@ -274,13 +329,18 @@ def station_config(dev_eui: str):
     except ValueError as e:
         flash(f"Config rechazada: {e}", "error")
         return redirect(_station_url(dev_eui, request.form.get("tab")))
+    except Exception as e:
+        flash(f"No se pudo encolar la config en TTN: {_human(e)} — "
+              "los valores NO se han guardado ni enviado a la estación", "error")
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
     mirror = {k: v for k, v in fields.items() if k in _DB_MIRROR}
     if "inference_mode" in fields:
         mirror["mode"] = "local" if fields["inference_mode"] == 1 else "forward"
     if mirror:
         svc.panel.update_station(dev_eui, mirror)
-    flash(f"Config encolada por LoRa ({len(cmd.payload)} B, FPort {cmd.f_port}); "
-          "se aplicará en la próxima ventana RX", "ok")
+    flash(f"Config encolada en TTN ({len(cmd.payload)} B, FPort {cmd.f_port}). "
+          "La estación aún no la tiene: viaja en su próxima ventana RX y quedará "
+          "confirmada cuando responda con CFG_ACK", "ok")
     return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
@@ -288,8 +348,13 @@ def station_config(dev_eui: str):
 def station_meta(dev_eui: str):
     patch = {k: request.form[k] for k in ("name", "mode") if request.form.get(k)}
     if patch:
-        _services().panel.update_station(dev_eui, patch)
-        flash("Estación actualizada", "ok")
+        try:
+            _services().panel.update_station(dev_eui, patch)
+        except Exception as e:
+            flash(f"No se pudo guardar: {_human(e)}", "error")
+            return redirect(_station_url(dev_eui, request.form.get("tab")))
+        flash("Guardado en el backend. Ojo: el modo de inferencia del nodo solo "
+              "cambia enviándolo por LoRa desde «Configurar por LoRa»", "ok")
     return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
@@ -299,7 +364,7 @@ def station_downlink(dev_eui: str):
         cmd = _services().schedule_downlink.run(dev_eui, int(time.time()))
         flash(f"Sincronización hora+TA encolada ({len(cmd.payload)} B)", "ok")
     except Exception as e:   # Open-Meteo/TTN failures surface as flash, not 500
-        flash(f"No se pudo encolar: {e}", "error")
+        flash(f"No se pudo encolar: {_human(e)}", "error")
     return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
@@ -312,5 +377,5 @@ def station_infer(dev_eui: str):
     except InsufficientData as e:
         flash(f"Datos insuficientes para inferir: {e}", "error")
     except Exception as e:
-        flash(f"Inferencia fallida: {e}", "error")
+        flash(f"Inferencia fallida: {_human(e)}", "error")
     return redirect(_station_url(dev_eui, request.form.get("tab")))

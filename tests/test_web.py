@@ -99,6 +99,60 @@ def test_action_returns_to_its_tab(client):
     assert resp.headers["Location"].endswith("/home/stations/savia?tab=ajustes")
 
 
+def test_ttn_failure_is_a_toast_not_a_traceback(client, monkeypatch, ttn_capture):
+    """A rejected push surfaces as a dismissible message and is logged as not sent."""
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    import app.adapters.ttn.client as ttn_client
+
+    def _boom(*a, **k):
+        raise RuntimeError('TTN downlink push failed (401): {"code":16,"message":'
+                           '"error:pkg/rpcmetadata:unauthenticated"}')
+    monkeypatch.setattr(ttn_client.TtnHttpClient, "schedule_downlink", _boom)
+
+    resp = client.post("/home/stations/savia/config",
+                       data={"lora_period_s": "600", "tab": "ajustes"},
+                       follow_redirects=True)
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Traceback" not in html
+    assert "TTN_API_KEY" in html                    # actionable, not a raw dump
+    assert 'class="toast toast-error"' in html
+    svc = client.application.config["SERVICES"]
+    dl = svc.panel.downlinks("savia", limit=1)[0]
+    assert dl.kind == "config" and dl.state == "failed"
+    assert svc.panel.config_state("savia")["state"] == "failed"
+
+
+def test_pending_config_flagged_until_the_station_acks(client, ttn_capture):
+    """Stored in the DB but not yet in the node: the panel says so until CFG_ACK."""
+    from app.adapters.ttn import codec
+
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    client.post("/home/stations/savia/config",
+                data={"lora_period_s": "600", "tab": "ajustes"})
+    html = client.get("/home/stations/savia").get_data(as_text=True)
+    assert "pendiente de confirmación" in html
+
+    _post_uplink(client, bytes([codec.VERSION, codec.UP_CFG_ACK, 1, 0]))
+    html = client.get("/home/stations/savia").get_data(as_text=True)
+    assert "pendiente de confirmación" not in html
+    assert "confirmada por la estación" in html
+
+
+def test_unexpected_error_never_renders_a_stack_trace(client, monkeypatch):
+    """Anything unhandled in the panel comes back as a message, not a 500 page."""
+    _login(client)
+    monkeypatch.setattr("app.application.services.PanelService.stations",
+                        lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
+    resp = client.get("/home/")
+    assert resp.status_code == 500
+    html = resp.get_data(as_text=True)
+    assert "Traceback" not in html
+    assert "boom" in html and 'class="toast toast-error"' in html
+
+
 def test_config_form_schedules_tlv_downlink(client, ttn_capture):
     _post_uplink(client, _soil_frame(1_782_000_000))
     _login(client)
@@ -109,7 +163,8 @@ def test_config_form_schedules_tlv_downlink(client, ttn_capture):
     assert "Config encolada" in html
     assert len(_config_downlinks(ttn_capture)) == 1
     # DB mirror: utc_offset_min applied to the station row.
-    assert "offset 120 min" in client.get("/home/stations/savia").get_data(as_text=True)
+    svc = client.application.config["SERVICES"]
+    assert svc.panel.station("savia").utc_offset_min == 120
 
 
 def test_config_form_rejects_out_of_range(client, ttn_capture):

@@ -7,11 +7,7 @@
 {% endmacro %}
 {% block content %}
 <div class="page-head">
-  <div>
-    <h1>{{ st.name or st.dev_eui }}</h1>
-    <p class="muted mono">{{ st.dev_eui }}
-      · offset {{ st.utc_offset_min }} min · horas en local de la estación</p>
-  </div>
+  <h1>{{ st.name or st.dev_eui }}</h1>
   <div class="actions">
     <form method="post" action="{{ url_for('web.station_downlink', dev_eui=st.dev_eui) }}" class="inline">
       <input type="hidden" name="tab" value="{{ tab }}">
@@ -31,6 +27,23 @@
   {{ tab_link('ajustes', 'Configuración') }}
 </nav>
 
+{% if config_state %}
+<div class="notice notice-{{ 'error' if config_state.state == 'failed' else 'warn' }}">
+  {% if config_state.state == 'failed' %}
+    <strong>La configuración no salió del backend.</strong>
+    El envío a TTN falló el {{ config_state.ts_s | dt(st.utc_offset_min) }}, así que la
+    estación <strong>no</strong> tiene estos valores. Vuelve a enviarlos desde
+    «Configurar por LoRa» cuando esté resuelto.
+    <div class="muted small">{{ config_state.detail | dl_detail }}</div>
+  {% else %}
+    <strong>Configuración pendiente de confirmación.</strong>
+    Encolada en TTN el {{ config_state.ts_s | dt(st.utc_offset_min) }}. Viaja en la
+    próxima ventana RX de la estación; hasta que responda con CFG_ACK, lo guardado aquí
+    puede no coincidir con lo que ejecuta el nodo.
+  {% endif %}
+</div>
+{% endif %}
+
 {% if tab == 'resumen' %}
 <div class="grid-2">
   <section class="card">
@@ -42,6 +55,13 @@
         <dd>{% if st.last_rssi is not none %}{{ st.last_rssi }} dBm / {{ st.last_snr }} dB{% else %}—{% endif %}</dd></div>
       <div><dt>Posición</dt><dd>{{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }}</dd></div>
       <div><dt>Hora local de la estación</dt><dd>{{ station_local_now }} (UTC{{ '%+.0f'|format(st.utc_offset_min / 60) }} h)</dd></div>
+      <div><dt>Configuración</dt><dd>
+        {% if config_state %}
+          <span class="chip st-{{ config_state.state }}">{{ config_state.detail | dl_label }}</span>
+        {% else %}
+          <span class="chip st-applied">confirmada por la estación</span>
+        {% endif %}
+      </dd></div>
     </dl>
   </section>
 
@@ -116,7 +136,7 @@
         <tr>
           <td>{{ d.ts_s | dt(st.utc_offset_min) }}</td>
           <td><span class="chip chip-{{ d.kind }}">{{ d.kind }}</span></td>
-          <td>{{ d.status }}</td>
+          <td><span class="chip st-{{ d.status | dl_state }}" title="{{ d.status }}">{{ d.status | dl_label }}</span></td>
           <td class="mono payload" title="{{ d.payload_hex }}">{{ d.payload_hex[:24] }}{% if d.payload_hex|length > 24 %}…{% endif %}</td>
         </tr>
       {% else %}
@@ -131,7 +151,9 @@
 {% if tab == 'ajustes' %}
 <section class="card">
   <h2>Datos del panel</h2>
-  <p class="muted">Se guardan solo en el backend; no viajan por LoRa.</p>
+  <p class="muted">Se guardan solo en el backend; <strong>no viajan por LoRa</strong>.
+    Cambiar aquí el modo no cambia el nodo: para eso usa «Modo inferencia» en
+    «Configurar por LoRa».</p>
   <form method="post" action="{{ url_for('web.station_meta', dev_eui=st.dev_eui) }}" class="row">
     <input type="hidden" name="tab" value="{{ tab }}">
     <label>Nombre <input name="name" value="{{ st.name }}"></label>

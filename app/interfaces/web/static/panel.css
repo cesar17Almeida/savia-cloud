@@ -100,15 +100,47 @@ dl div { display: flex; justify-content: space-between; gap: 1rem; padding: 0.22
 dt { color: var(--muted); }
 dd { margin: 0; text-align: right; }
 
-/* Chips + flashes */
+/* Chips + messages */
 .chip {
   display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px;
   font-size: 0.78em; border: 1px solid var(--line); color: var(--muted);
 }
 .chip.ok { background: var(--ok-bg); border-color: transparent; color: var(--accent); }
-.flash { padding: 0.6rem 0.9rem; border-radius: 10px; margin-bottom: 1rem; }
-.flash.ok { background: var(--ok-bg); color: var(--accent); }
-.flash.error { background: var(--err-bg); color: var(--error); }
+/* Toasts: every message floats, errors wait for the operator to dismiss them. */
+.toasts {
+  position: fixed; top: calc(var(--appbar-h) + 0.8rem); right: 1rem; z-index: 50;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  width: min(430px, calc(100vw - 2rem));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.7rem 0.55rem 0.7rem 0.85rem; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 8px 26px rgba(28, 36, 32, 0.14);
+  font-size: 0.92em;
+}
+.toast span { flex: 1; }
+.toast-ok { background: var(--ok-bg); border-color: transparent; color: var(--accent); }
+.toast-error { background: var(--err-bg); border-color: transparent; color: var(--error); }
+.toast-x {
+  border: none; background: none; color: inherit; cursor: pointer;
+  font-size: 1.15rem; line-height: 1; padding: 0 0.3rem; opacity: 0.55;
+}
+.toast-x:hover { opacity: 1; color: inherit; }
+
+/* Standing notice: state the panel cannot fix by itself (drift, failed send). */
+.notice {
+  padding: 0.75rem 0.95rem; border-radius: 12px; margin-bottom: 1.2rem;
+  font-size: 0.94em; border: 1px solid transparent;
+}
+.notice-warn { background: #faf1e4; color: #7a5310; }
+.notice-error { background: var(--err-bg); color: var(--error); }
+.notice .muted { color: inherit; opacity: 0.75; }
+
+/* Downlink lifecycle */
+.st-scheduled { background: #faf1e4; color: #9a6b1f; border-color: transparent; }
+.st-applied   { background: var(--ok-bg); color: var(--accent); border-color: transparent; }
+.st-failed    { background: var(--err-bg); color: var(--error); border-color: transparent; }
 
 /* Tables */
 .table-wrap { overflow-x: auto; margin: 0 -0.4rem; }

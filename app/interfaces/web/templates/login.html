@@ -7,14 +7,21 @@
   <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
 </head>
 <body class="login-body">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="toasts" id="toasts" role="status" aria-live="polite">
+        {% for cat, msg in messages %}
+          <div class="toast toast-{{ cat }}">
+            <span>{{ msg }}</span>
+            <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
 <div class="login-card">
   <div class="brand big">SAVIA<span>cloud</span></div>
   <p class="muted">Consola del operador</p>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-      <div class="flash {{ cat }}">{{ msg }}</div>
-    {% endfor %}
-  {% endwith %}
   <form method="post">
     <label>Usuario
       <input name="user" autocomplete="username" autofocus>
@@ -25,5 +32,19 @@
     <button type="submit" class="primary">Entrar</button>
   </form>
 </div>
+<script>
+// Toasts: errors stay until dismissed, confirmations fade on their own.
+(function () {
+  var box = document.getElementById("toasts");
+  if (!box) return;
+  box.addEventListener("click", function (ev) {
+    var x = ev.target.closest(".toast-x");
+    if (x) x.parentElement.remove();
+  });
+  box.querySelectorAll(".toast-ok").forEach(function (t) {
+    setTimeout(function () { t.remove(); }, 8000);
+  });
+})();
+</script>
 </body>
 </html>

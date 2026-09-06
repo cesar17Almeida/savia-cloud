@@ -24,14 +24,35 @@
          {{ 'aria-current=page' if nav_active == 'password' }}>Contraseña</a>
     </nav>
   </aside>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="toasts" id="toasts" role="status" aria-live="polite">
+        {% for cat, msg in messages %}
+          <div class="toast toast-{{ cat }}">
+            <span>{{ msg }}</span>
+            <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
   <main>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for cat, msg in messages %}
-        <div class="flash {{ cat }}">{{ msg }}</div>
-      {% endfor %}
-    {% endwith %}
     {% block content %}{% endblock %}
   </main>
 </div>
+<script>
+// Toasts: errors stay until dismissed, confirmations fade on their own.
+(function () {
+  var box = document.getElementById("toasts");
+  if (!box) return;
+  box.addEventListener("click", function (ev) {
+    var x = ev.target.closest(".toast-x");
+    if (x) x.parentElement.remove();
+  });
+  box.querySelectorAll(".toast-ok").forEach(function (t) {
+    setTimeout(function () { t.remove(); }, 8000);
+  });
+})();
+</script>
 </body>
 </html>
