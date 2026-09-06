@@ -63,19 +63,40 @@ def test_change_password_roundtrip(client):
 def test_uplink_logged_and_visible(client):
     assert _post_uplink(client, _soil_frame(1_782_000_000)).status_code == 200
     _login(client)
-    page = client.get("/home/stations/savia")
+    page = client.get("/home/stations/savia?tab=actividad")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
     assert "soil" in html            # uplink type chip
-    assert "0.790" in html           # stored reading rendered
     assert "-121" in html            # logged RSSI
+    readings = client.get("/home/stations/savia?tab=lecturas").get_data(as_text=True)
+    assert "0.790" in readings       # stored reading rendered
 
 
 def test_unknown_uplink_still_logged(client):
     assert _post_uplink(client, b"\x02\xee\x00").status_code == 200
     _login(client)
-    html = client.get("/home/stations/savia").get_data(as_text=True)
+    html = client.get("/home/stations/savia?tab=actividad").get_data(as_text=True)
     assert "unknown" in html
+
+
+def test_station_tabs(client):
+    """Unknown tabs fall back to the summary; each tab renders only its own cards."""
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    default = client.get("/home/stations/savia").get_data(as_text=True)
+    assert "Estado" in default and "Configurar por LoRa" not in default
+    assert client.get("/home/stations/savia?tab=nope").get_data(as_text=True) == default
+    settings = client.get("/home/stations/savia?tab=ajustes").get_data(as_text=True)
+    assert "Configurar por LoRa" in settings and "Uplinks recibidos" not in settings
+
+
+def test_action_returns_to_its_tab(client):
+    """A form posted from a tab redirects back to that same tab."""
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    resp = client.post("/home/stations/savia/meta",
+                       data={"name": "Invernadero", "tab": "ajustes"})
+    assert resp.headers["Location"].endswith("/home/stations/savia?tab=ajustes")
 
 
 def test_config_form_schedules_tlv_downlink(client, ttn_capture):

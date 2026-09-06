@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ st.name or st.dev_eui }} — Savia Cloud{% endblock %}
+{% macro tab_link(slug, label) %}
+  <a class="tab {{ 'is-active' if tab == slug }}"
+     href="{{ url_for('web.station', dev_eui=st.dev_eui, tab=slug) }}"
+     {{ 'aria-current=page' if tab == slug }}>{{ label }}</a>
+{% endmacro %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -9,14 +14,24 @@
   </div>
   <div class="actions">
     <form method="post" action="{{ url_for('web.station_downlink', dev_eui=st.dev_eui) }}" class="inline">
+      <input type="hidden" name="tab" value="{{ tab }}">
       <button type="submit">Sincronizar hora + TA</button>
     </form>
     <form method="post" action="{{ url_for('web.station_infer', dev_eui=st.dev_eui) }}" class="inline">
+      <input type="hidden" name="tab" value="{{ tab }}">
       <button type="submit" class="primary">Inferir ahora</button>
     </form>
   </div>
 </div>
 
+<nav class="tabs">
+  {{ tab_link('resumen', 'Resumen') }}
+  {{ tab_link('lecturas', 'Lecturas') }}
+  {{ tab_link('actividad', 'Actividad LoRa') }}
+  {{ tab_link('ajustes', 'Configuración') }}
+</nav>
+
+{% if tab == 'resumen' %}
 <div class="grid-2">
   <section class="card">
     <h2>Estado</h2>
@@ -28,26 +43,6 @@
       <div><dt>Posición</dt><dd>{{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }}</dd></div>
       <div><dt>Hora local de la estación</dt><dd>{{ station_local_now }} (UTC{{ '%+.0f'|format(st.utc_offset_min / 60) }} h)</dd></div>
     </dl>
-    <form method="post" action="{{ url_for('web.station_timezone', dev_eui=st.dev_eui) }}" class="row">
-      <label>Zona horaria
-        <select name="tz">
-          {% for label, tz in timezones %}
-            <option value="{{ tz }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Aplicar por LoRa</button>
-    </form>
-    <form method="post" action="{{ url_for('web.station_meta', dev_eui=st.dev_eui) }}" class="row">
-      <label>Nombre <input name="name" value="{{ st.name }}"></label>
-      <label>Modo
-        <select name="mode">
-          <option value="forward" {{ 'selected' if st.mode == 'forward' }}>forward (nube)</option>
-          <option value="local" {{ 'selected' if st.mode == 'local' }}>local (estación)</option>
-        </select>
-      </label>
-      <button type="submit">Guardar</button>
-    </form>
   </section>
 
   <section class="card">
@@ -67,33 +62,30 @@
     {% endif %}
   </section>
 </div>
+{% endif %}
 
+{% if tab == 'lecturas' %}
 <section class="card">
-  <h2>Configurar por LoRa</h2>
-  <p class="muted">Solo los campos rellenados se envían (downlink TLV, se aplica en la
-    próxima ventana RX; la estación responde con CFG_ACK).</p>
-  <form method="post" action="{{ url_for('web.station_config', dev_eui=st.dev_eui) }}" class="cfg-grid">
-    <label>Periodo LoRa (s) <input name="lora_period_s" type="number" min="300" max="86400" placeholder="600"></label>
-    <label>Captura (s) <input name="capture_s" type="number" min="60" max="86400" placeholder="3600"></label>
-    <label>Sueño (s) <input name="sleep_s" type="number" min="10" max="86400" placeholder="60"></label>
-    <label>Deep sleep
-      <select name="deep_sleep"><option value="">—</option><option value="0">off</option><option value="1">on</option></select>
-    </label>
-    <label>Modo inferencia
-      <select name="inference_mode"><option value="">—</option><option value="0">forward (nube)</option><option value="1">local (estación)</option></select>
-    </label>
-    <label>Hora inferencia (local) <input name="daily_hour" type="number" min="0" max="23" placeholder="20"></label>
-    <label>Minuto inferencia (local) <input name="daily_min" type="number" min="0" max="59" placeholder="0"></label>
-    <label>Offset UTC (min) <input name="utc_offset_min" type="number" min="-720" max="840" placeholder="120"></label>
-    <label>Latitud <input name="lat" type="number" step="any" placeholder="39.48"></label>
-    <label>Longitud <input name="lon" type="number" step="any" placeholder="-0.34"></label>
-    <label>Nivel de log
-      <select name="log_level"><option value="">—</option><option value="0">error</option><option value="1">info</option><option value="2">debug</option></select>
-    </label>
-    <div class="cfg-submit"><button type="submit" class="primary">Enviar config</button></div>
-  </form>
+  <h2>Lecturas de suelo almacenadas</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Hora (local estación)</th><th>HS10 (VWC)</th><th>HS30 (VWC)</th><th>TA (°C)</th></tr></thead>
+    <tbody>
+    {% for r in readings %}
+      <tr>
+        <td>{{ r.ts_hour_s | dt(st.utc_offset_min) }}</td>
+        <td>{{ '%.3f'|format(r.hs10) if r.hs10 is not none else '—' }}</td>
+        <td>{{ '%.3f'|format(r.hs30) if r.hs30 is not none else '—' }}</td>
+        <td>{{ '%.1f'|format(r.ta) if r.ta is not none else '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Sin lecturas todavía — llegarán con los uplinks SOIL (modo forward).</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
 </section>
+{% endif %}
 
+{% if tab == 'actividad' %}
 <div class="grid-2">
   <section class="card">
     <h2>Uplinks recibidos</h2>
@@ -134,23 +126,67 @@
     </table></div>
   </section>
 </div>
+{% endif %}
+
+{% if tab == 'ajustes' %}
+<section class="card">
+  <h2>Datos del panel</h2>
+  <p class="muted">Se guardan solo en el backend; no viajan por LoRa.</p>
+  <form method="post" action="{{ url_for('web.station_meta', dev_eui=st.dev_eui) }}" class="row">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label>Nombre <input name="name" value="{{ st.name }}"></label>
+    <label>Modo
+      <select name="mode">
+        <option value="forward" {{ 'selected' if st.mode == 'forward' }}>forward (nube)</option>
+        <option value="local" {{ 'selected' if st.mode == 'local' }}>local (estación)</option>
+      </select>
+    </label>
+    <button type="submit">Guardar</button>
+  </form>
+</section>
 
 <section class="card">
-  <h2>Lecturas de suelo almacenadas</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Hora (local estación)</th><th>HS10 (VWC)</th><th>HS30 (VWC)</th><th>TA (°C)</th></tr></thead>
-    <tbody>
-    {% for r in readings %}
-      <tr>
-        <td>{{ r.ts_hour_s | dt(st.utc_offset_min) }}</td>
-        <td>{{ '%.3f'|format(r.hs10) if r.hs10 is not none else '—' }}</td>
-        <td>{{ '%.3f'|format(r.hs30) if r.hs30 is not none else '—' }}</td>
-        <td>{{ '%.1f'|format(r.ta) if r.ta is not none else '—' }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4" class="muted">Sin lecturas todavía — llegarán con los uplinks SOIL (modo forward).</td></tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
+  <h2>Zona horaria</h2>
+  <p class="muted">Envía el offset UTC vigente (con DST aplicado) como TLV por LoRa
+    y lo refleja en el backend.</p>
+  <form method="post" action="{{ url_for('web.station_timezone', dev_eui=st.dev_eui) }}" class="row">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label>Zona horaria
+      <select name="tz">
+        {% for label, tz in timezones %}
+          <option value="{{ tz }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Aplicar por LoRa</button>
+  </form>
 </section>
+
+<section class="card">
+  <h2>Configurar por LoRa</h2>
+  <p class="muted">Solo los campos rellenados se envían (downlink TLV, se aplica en la
+    próxima ventana RX; la estación responde con CFG_ACK).</p>
+  <form method="post" action="{{ url_for('web.station_config', dev_eui=st.dev_eui) }}" class="cfg-grid">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label>Periodo LoRa (s) <input name="lora_period_s" type="number" min="300" max="86400" placeholder="600"></label>
+    <label>Captura (s) <input name="capture_s" type="number" min="60" max="86400" placeholder="3600"></label>
+    <label>Sueño (s) <input name="sleep_s" type="number" min="10" max="86400" placeholder="60"></label>
+    <label>Deep sleep
+      <select name="deep_sleep"><option value="">—</option><option value="0">off</option><option value="1">on</option></select>
+    </label>
+    <label>Modo inferencia
+      <select name="inference_mode"><option value="">—</option><option value="0">forward (nube)</option><option value="1">local (estación)</option></select>
+    </label>
+    <label>Hora inferencia (local) <input name="daily_hour" type="number" min="0" max="23" placeholder="20"></label>
+    <label>Minuto inferencia (local) <input name="daily_min" type="number" min="0" max="59" placeholder="0"></label>
+    <label>Offset UTC (min) <input name="utc_offset_min" type="number" min="-720" max="840" placeholder="120"></label>
+    <label>Latitud <input name="lat" type="number" step="any" placeholder="39.48"></label>
+    <label>Longitud <input name="lon" type="number" step="any" placeholder="-0.34"></label>
+    <label>Nivel de log
+      <select name="log_level"><option value="">—</option><option value="0">error</option><option value="1">info</option><option value="2">debug</option></select>
+    </label>
+    <div class="cfg-submit"><button type="submit" class="primary">Enviar config</button></div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

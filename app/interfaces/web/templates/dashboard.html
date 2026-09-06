@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <h1>Estaciones</h1>
-  <a href="{{ url_for('web.station_new') }}"><button class="primary">Agregar dispositivo</button></a>
+  <a class="btn primary" href="{{ url_for('web.station_new') }}">Agregar dispositivo</a>
 </div>
 {% if not stations %}
   <p class="muted">Sin estaciones todavía. Aparecerán con su primer uplink LoRa,

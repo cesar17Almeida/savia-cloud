@@ -7,23 +7,31 @@
   <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
 </head>
 <body>
-<header class="topbar">
+<header class="appbar">
   <a class="brand" href="{{ url_for('web.dashboard') }}">SAVIA<span>cloud</span></a>
-  <nav>
-    <a href="{{ url_for('web.dashboard') }}">Estaciones</a>
-    <a href="{{ url_for('web.password') }}">Contraseña</a>
-    <form method="post" action="{{ url_for('web.logout') }}" class="inline">
-      <button type="submit" class="ghost">Salir</button>
-    </form>
-  </nav>
+  <form method="post" action="{{ url_for('web.logout') }}" class="inline">
+    <button type="submit" class="ghost">Cerrar sesión</button>
+  </form>
 </header>
-<main>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-      <div class="flash {{ cat }}">{{ msg }}</div>
-    {% endfor %}
-  {% endwith %}
-  {% block content %}{% endblock %}
-</main>
+<div class="shell">
+  <aside class="sidenav">
+    <nav>
+      <a class="nav-item {{ 'is-active' if nav_active == 'stations' }}"
+         href="{{ url_for('web.dashboard') }}"
+         {{ 'aria-current=page' if nav_active == 'stations' }}>Estaciones</a>
+      <a class="nav-item {{ 'is-active' if nav_active == 'password' }}"
+         href="{{ url_for('web.password') }}"
+         {{ 'aria-current=page' if nav_active == 'password' }}>Contraseña</a>
+    </nav>
+  </aside>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
 </body>
 </html>

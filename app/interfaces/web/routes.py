@@ -65,6 +65,13 @@ def _fmt_dt(ts_s, offset_min: int = 0) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(ts_s) + offset_min * 60))
 
 
+@bp.app_context_processor
+def _nav():
+    """Sidebar highlight: every station page lives under the 'Estaciones' entry."""
+    endpoint = (request.endpoint or "").removeprefix("web.")
+    return {"nav_active": "password" if endpoint == "password" else "stations"}
+
+
 def _current_user():
     """Resolve the session-cookie token, or None when not logged in."""
     try:
@@ -186,9 +193,20 @@ def station_new():
     return render_template("station_new.html", timezones=TIMEZONES, form={})
 
 
+STATION_TABS = ("resumen", "lecturas", "actividad", "ajustes")
+
+
+def _station_url(dev_eui: str, tab: str | None = None) -> str:
+    """Back to the station page, on the tab the action was fired from."""
+    return url_for("web.station", dev_eui=dev_eui,
+                   tab=tab if tab in STATION_TABS else None)
+
+
 @bp.get("/stations/<dev_eui>")
 def station(dev_eui: str):
     svc = _services()
+    tab = request.args.get("tab", "")
+    tab = tab if tab in STATION_TABS else STATION_TABS[0]
     st = svc.panel.station(dev_eui)
     ups = svc.panel.uplinks(dev_eui)
     return render_template(
@@ -200,6 +218,7 @@ def station(dev_eui: str):
         downlinks=svc.panel.downlinks(dev_eui),
         readings=svc.panel.readings(dev_eui),
         forecast=svc.panel.latest_forecast(dev_eui),
+        tab=tab,
     )
 
 
@@ -209,7 +228,7 @@ def station_timezone(dev_eui: str):
     tz = request.form.get("tz", "")
     if tz not in {z for _, z in TIMEZONES}:
         flash("Zona horaria no reconocida", "error")
-        return redirect(url_for("web.station", dev_eui=dev_eui))
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
     offset = _tz_offset_min(tz)
     svc = _services()
     try:
@@ -219,7 +238,7 @@ def station_timezone(dev_eui: str):
               "la estación confirmará con CFG_ACK", "ok")
     except Exception as e:
         flash(f"No se pudo encolar: {e}", "error")
-    return redirect(url_for("web.station", dev_eui=dev_eui))
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
 # --- actions -----------------------------------------------------------------
@@ -246,15 +265,15 @@ def station_config(dev_eui: str):
                 fields[name] = cast(value)
     except ValueError:
         flash("Valor no numérico en el formulario", "error")
-        return redirect(url_for("web.station", dev_eui=dev_eui))
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
     if not fields:
         flash("Ningún campo a enviar", "error")
-        return redirect(url_for("web.station", dev_eui=dev_eui))
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
     try:
         cmd = svc.config_downlink.run(dev_eui, fields, int(time.time()))
     except ValueError as e:
         flash(f"Config rechazada: {e}", "error")
-        return redirect(url_for("web.station", dev_eui=dev_eui))
+        return redirect(_station_url(dev_eui, request.form.get("tab")))
     mirror = {k: v for k, v in fields.items() if k in _DB_MIRROR}
     if "inference_mode" in fields:
         mirror["mode"] = "local" if fields["inference_mode"] == 1 else "forward"
@@ -262,7 +281,7 @@ def station_config(dev_eui: str):
         svc.panel.update_station(dev_eui, mirror)
     flash(f"Config encolada por LoRa ({len(cmd.payload)} B, FPort {cmd.f_port}); "
           "se aplicará en la próxima ventana RX", "ok")
-    return redirect(url_for("web.station", dev_eui=dev_eui))
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
 @bp.post("/stations/<dev_eui>/meta")
@@ -271,7 +290,7 @@ def station_meta(dev_eui: str):
     if patch:
         _services().panel.update_station(dev_eui, patch)
         flash("Estación actualizada", "ok")
-    return redirect(url_for("web.station", dev_eui=dev_eui))
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
 @bp.post("/stations/<dev_eui>/downlink")
@@ -281,7 +300,7 @@ def station_downlink(dev_eui: str):
         flash(f"Sincronización hora+TA encolada ({len(cmd.payload)} B)", "ok")
     except Exception as e:   # Open-Meteo/TTN failures surface as flash, not 500
         flash(f"No se pudo encolar: {e}", "error")
-    return redirect(url_for("web.station", dev_eui=dev_eui))
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 
 @bp.post("/stations/<dev_eui>/infer")
@@ -294,4 +313,4 @@ def station_infer(dev_eui: str):
         flash(f"Datos insuficientes para inferir: {e}", "error")
     except Exception as e:
         flash(f"Inferencia fallida: {e}", "error")
-    return redirect(url_for("web.station", dev_eui=dev_eui))
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
