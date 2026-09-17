@@ -82,9 +82,18 @@ sudo systemctl daemon-reload && sudo systemctl enable --now savia-cloud
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # editar el hostname antes
 sudo systemctl reload caddy
 
-sudo install -m 755 deploy/cron-daily.sh /opt/savia-cloud/deploy/cron-daily.sh
-echo '7 * * * * savia /opt/savia-cloud/deploy/cron-daily.sh >> /var/log/savia-cloud-cron.log 2>&1' \
+echo '7 * * * * savia /bin/sh /opt/savia-cloud/deploy/cron-daily.sh >> /var/log/savia-cloud-cron.log 2>&1' \
   | sudo tee /etc/cron.d/savia-cloud
+```
+
+El cron invoca el script con `/bin/sh` a propósito: cada despliegue por `rsync`
+vuelve a escribir `deploy/cron-daily.sh` con los permisos del repositorio, y si
+la entrada dependiera del bit de ejecución un despliegue podría dejar la
+inferencia diaria sin disparar (pasó el 06-09-2026: `Permission denied` cada hora
+en `/var/log/savia-cloud-cron.log`). Comprobación tras cada despliegue:
+
+```sh
+sudo tail -n 3 /var/log/savia-cloud-cron.log   # debe mostrar {"ok":true,"ran":[...]} y no "Permission denied"
 ```
 
 El cron dispara **cada hora**; el backend decide por estación (según su
