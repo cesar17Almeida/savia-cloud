@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import base64
 import struct
+from dataclasses import replace
+
+from app.factory import create_app
+from tests.conftest import ADMIN_PASSWORD
 
 
-def _login(client, user="admin", password="admin"):
+def _login(client, user="admin", password=ADMIN_PASSWORD):
     return client.post("/home/login", data={"user": user, "password": password},
                        follow_redirects=False)
 
@@ -52,12 +56,40 @@ def test_bad_login_rejected(client):
 
 def test_change_password_roundtrip(client):
     _login(client)
-    resp = client.post("/home/password", data={"current": "admin", "new": "s3cure"},
+    resp = client.post("/home/password", data={"current": ADMIN_PASSWORD,
+                                               "new": "s3cure-pass"},
                        follow_redirects=False)
     assert resp.status_code == 302
     client.post("/home/logout")
-    assert _login(client, password="admin").status_code == 200   # old rejected
-    assert _login(client, password="s3cure").status_code == 302  # new accepted
+    assert _login(client, password=ADMIN_PASSWORD).status_code == 200  # old rejected
+    assert _login(client, password="s3cure-pass").status_code == 302   # new accepted
+
+
+def test_default_password_must_change_before_anything_else(settings):
+    """Seeded without ADMIN_PASSWORD, the operator lands on the password form and
+    every other page sends it back there until the default is replaced."""
+    client = create_app(replace(settings, admin_password="")).test_client()
+    resp = _login(client, password="admin")
+    assert resp.status_code == 302 and resp.headers["Location"].endswith("/home/password")
+    assert client.get("/home/").headers["Location"].endswith("/home/password")
+
+    # Neither the default again nor a short password lifts the gate.
+    for weak in ("admin", "short"):
+        client.post("/home/password", data={"current": "admin", "new": weak})
+        assert client.get("/home/").status_code == 302
+
+    resp = client.post("/home/password", data={"current": "admin",
+                                               "new": "a-real-password"})
+    assert resp.status_code == 302
+    assert client.get("/home/").status_code == 200
+    client.post("/home/logout")
+    assert _login(client, password="admin").status_code == 200        # default gone
+
+
+def test_panel_cookie_is_samesite_lax(client):
+    resp = _login(client)
+    cookie = resp.headers.get("Set-Cookie", "")
+    assert "SameSite=Lax" in cookie and "HttpOnly" in cookie
 
 
 def test_uplink_logged_and_visible(client):
@@ -139,6 +171,16 @@ def test_pending_config_flagged_until_the_station_acks(client, ttn_capture):
     html = client.get("/home/stations/savia").get_data(as_text=True)
     assert "pendiente de confirmación" not in html
     assert "confirmada por la estación" in html
+
+
+def test_station_without_config_is_not_reported_as_confirmed(client):
+    """A station that never received a config must not read as confirmed."""
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    html = client.get("/home/stations/savia").get_data(as_text=True)
+    assert "confirmada por la estación" not in html
+    assert "sin configuración enviada" in html
+    assert "pendiente de confirmación" not in html
 
 
 def test_unexpected_error_never_renders_a_stack_trace(client, monkeypatch):

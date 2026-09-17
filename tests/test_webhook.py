@@ -106,3 +106,63 @@ def test_boot_uplink_forces_clock_sync(client, ttn_capture):
     assert len(ttn_capture) == 2                      # boot bypasses the gap
     payload = b64.b64decode(ttn_capture[1]["json"]["downlinks"][0]["frm_payload"])
     assert payload[:2] == bytes([0x02, 0x01]) and len(payload) == 8
+
+
+def test_cfg_ack_closes_the_oldest_queued_config(client, ttn_capture):
+    """TTN drains its queue FIFO: one CFG_ACK confirms the first config pushed and
+    the second one stays pending."""
+    hdr = {"X-Webhook-Token": WEBHOOK_SECRET}
+    client.post("/ttn/uplink", json=_ttn_body(dev="EUI-Q"), headers=hdr)
+    svc = client.application.config["SERVICES"]
+    svc.config_downlink.run("EUI-Q", {"sleep_s": 100}, 1_789_000_000)
+    svc.config_downlink.run("EUI-Q", {"sleep_s": 200}, 1_789_000_060)
+
+    ack = bytes([codec.VERSION, codec.UP_CFG_ACK, 1, 0])
+    client.post("/ttn/uplink", json=_ttn_body(dev="EUI-Q", payload=ack), headers=hdr)
+    configs = [d for d in svc.panel.downlinks("EUI-Q", 10) if d.kind == "config"]
+    assert [d.state for d in configs] == ["scheduled", "applied"]   # newest first
+    assert configs[1].payload_hex.endswith("00000064")               # sleep_s=100
+    assert svc.panel.config_state("EUI-Q")["state"] == "scheduled"
+
+
+def test_failed_clock_sync_is_retried_on_the_next_uplink(client, monkeypatch):
+    import app.adapters.ttn.client as ttn_client
+
+    pushes = []
+
+    def _flaky(self, command):
+        pushes.append(command)
+        if len(pushes) == 1:
+            raise RuntimeError("TTN unreachable")
+    monkeypatch.setattr(ttn_client.TtnHttpClient, "schedule_downlink", _flaky)
+
+    hdr = {"X-Webhook-Token": WEBHOOK_SECRET}
+    client.post("/ttn/uplink", json=_ttn_body(), headers=hdr)   # push fails
+    client.post("/ttn/uplink", json=_ttn_body(), headers=hdr)   # retried at once
+    assert len(pushes) == 2
+    client.post("/ttn/uplink", json=_ttn_body(), headers=hdr)   # inside the 6 h gap
+    assert len(pushes) == 2
+
+
+def test_implausible_soil_timestamps_are_not_stored():
+    """Clockless or corrupted buckets stay in the raw uplink log only."""
+    readings = _FakeReadings()
+    svc = IngestUplinkService(InMemoryStationRepository(), readings)
+    at = 1_789_000_000
+    rec = {"hs10": 0.5, "hs30": 0.5, "ta": 20.0}
+    decoded = {"type": "soil", "records": [
+        {"ts_hour_s": 0, **rec},
+        {"ts_hour_s": 0xFFFFFFFF, **rec},
+        {"ts_hour_s": at + 2 * 86400, **rec},
+        {"ts_hour_s": at - 3600, **rec},
+    ]}
+    svc.handle("EUI-T", decoded, -80, 8.0, at)
+    assert [r.ts_hour_s for r in readings.rows] == [at - 3600]
+
+
+def test_webhook_survives_an_out_of_range_timestamp(client):
+    """A u32 timestamp above the int32 range must not reach PostgreSQL."""
+    frame = bytes([codec.VERSION, codec.UP_SOIL, 1]) + bytes.fromhex("FFFFFFFF" "0320" "0300" "00C8")
+    r = client.post("/ttn/uplink", json=_ttn_body(dev="EUI-BIG", payload=frame),
+                    headers={"X-Webhook-Token": WEBHOOK_SECRET})
+    assert r.status_code == 200 and r.get_json()["type"] == "soil"

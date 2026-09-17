@@ -34,3 +34,17 @@ class StationClaimed(AppError):
 
 class InsufficientData(AppError):
     status = 422
+
+
+class InvalidInput(AppError, ValueError):
+    """Malformed or out-of-range request data."""
+    status = 400
+
+
+class RegistrationClosed(AppError):
+    status = 403
+
+
+class PasswordChangeRequired(AppError):
+    """The account still uses the default password."""
+    status = 403

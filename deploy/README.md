@@ -67,7 +67,7 @@ cd /opt/savia-cloud && sudo -u savia .venv/bin/python tools/migrate_sqlite_to_po
 sudo mkdir -p /etc/savia-cloud
 sudo cp deploy/env.example /etc/savia-cloud/env
 sudo chmod 600 /etc/savia-cloud/env && sudo chown savia:savia /etc/savia-cloud/env
-sudo nano /etc/savia-cloud/env   # rellenar TTN_API_KEY, WEBHOOK_SECRET, CRON_SECRET
+sudo nano /etc/savia-cloud/env   # rellenar TTN_API_KEY, WEBHOOK_SECRET, CRON_SECRET, SECRET_KEY, ADMIN_PASSWORD
 sudo chown -R savia:savia /opt/savia-cloud /var/lib/savia-cloud
 ```
 

@@ -213,7 +213,10 @@ def encode_config_patch_tlv(fields: dict) -> bytes:
             continue
         fid, width, signed, in_range = _TLV_FIELDS[key]
         raw = fields[key]
-        value = round(raw * 1e7) if key in ("lat", "lon") else int(raw)
+        try:
+            value = round(float(raw) * 1e7) if key in ("lat", "lon") else int(raw)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(f"{key} must be a number, got {raw!r}") from None
         if not in_range(value):
             raise ValueError(f"{key}={raw} out of range")
         out.append(fid)

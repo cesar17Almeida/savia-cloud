@@ -72,10 +72,10 @@ class _Log(DownlinkLogRepository):
     def add(self, dev_eui, ts_s, kind, payload_hex, status):
         self.entries.append((dev_eui, kind, status))
 
-    def list_recent(self, dev_eui, limit):  # unused here
+    def list_recent(self, dev_eui, limit, kind=None):  # unused here
         return []
 
-    def confirm_latest(self, dev_eui, kind, status):  # unused here
+    def confirm_oldest_queued(self, dev_eui, kind, status):  # unused here
         return False
 
 

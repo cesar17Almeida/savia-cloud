@@ -47,8 +47,8 @@ el test de inferencia se salta limpio (`skipif`).
 | Método | Ruta | Auth | Qué hace |
 |---|---|---|---|
 | GET  | `/health` | — | Sonda de vida. |
-| POST | `/auth/register` | — | Crea usuario `{email, password}`. 409 si ya existe. |
-| POST | `/auth/login` | — | Devuelve `{token}` (bearer, 30 días). |
+| POST | `/auth/register` | — | Crea usuario `{email, password}`. 409 si ya existe. **Cerrado (403) salvo `ALLOW_REGISTRATION=true`.** |
+| POST | `/auth/login` | — | Devuelve `{token}` (bearer, 30 días). 403 si la cuenta sigue con la contraseña por defecto. |
 | POST | `/stations/claim` | Bearer | Vincula una estación al usuario. 409 si ya es de otro. |
 | GET  | `/stations/<dev_eui>` | Bearer (owner) | Datos de la estación. |
 | PUT  | `/stations/<dev_eui>` | Bearer (owner) | Edita `lat/lon/utc_offset_min/name/mode`. |
@@ -57,6 +57,11 @@ el test de inferencia se salta limpio (`skipif`).
 | POST | `/stations/<dev_eui>/config` | Bearer (owner) | Programa un parche de config (TLV). |
 | POST | `/ttn/uplink` | `X-Webhook-Token` | Webhook de TTN: decodifica + persiste. |
 | POST | `/cron/daily` | `X-Cron-Token` | Corre la inferencia diaria (ver abajo). |
+
+Los errores de la API son siempre JSON `{error, message}`: 400 para datos mal
+formados, 401/403/404/409 para auth y propiedad, 502 cuando TTN u Open-Meteo fallan
+(el downlink queda registrado como `failed`) y 500 para lo inesperado, que se
+registra en el log sin devolver la traza.
 
 ## Modelo de autenticación (auth sobre LoRa)
 
@@ -74,6 +79,14 @@ autentica extremo a extremo con la `AppKey`** (OTAA). Sobre ese hecho:
   en claro por el aire porque LoRaWAN ya lo protege.
 - **El webhook confía en TTN mediante un secreto compartido** (`X-Webhook-Token`), no
   por identidad de la estación: el nodo ya está autenticado frente a TTN por la red.
+- **El autorregistro está cerrado por defecto.** `POST /stations/claim` no puede
+  comprobar que quien reclama tiene la clave BLE de la estación, así que en producción
+  solo existen cuentas creadas por el operador. `ALLOW_REGISTRATION=true` lo abre
+  (desarrollo local, pruebas).
+- **Panel del operador (`/home`).** La cuenta `admin` se siembra al arrancar con
+  `ADMIN_PASSWORD`; si no está definida arranca con la contraseña por defecto, el
+  panel obliga a cambiarla antes de mostrar nada más y la API JSON la rechaza. La
+  cookie del panel es `SameSite=Lax` (y `Secure` con `SESSION_COOKIE_SECURE=true`).
 
 ## Inferencia en la nube (modo FORWARD)
 
@@ -90,7 +103,12 @@ carried-forward*; falla si hay >6 h contiguas sin suelo), guarda el pronóstico 
 `POST /cron/daily` no se auto-agenda: se dispara desde un **scheduler externo**
 (cron del sistema, GitHub Actions, Cloud Scheduler…) **una vez por hora**. En cada
 llamada, cada estación *forward* corre su inferencia cuando su **hora local**
-(derivada de `utc_offset_min`) coincide con `CRON_DAILY_HOUR`. Ejemplo de crontab:
+(derivada de `utc_offset_min`) coincide con `CRON_DAILY_HOUR`. Cada estación se
+procesa por separado: si una falla (Open-Meteo, TTN, modelo) las demás siguen, y una
+segunda llamada dentro de la misma hora local no repite la inferencia ni el downlink
+(uso justo de TTN). La respuesta es `{ok, ran, skipped, failed}`, con el motivo por
+estación en `skipped` y `failed`; `{"force": true}` se salta ambas comprobaciones.
+Ejemplo de crontab:
 
 ```cron
 0 * * * *  curl -s -X POST https://<host>/cron/daily -H "X-Cron-Token: $CRON_SECRET"

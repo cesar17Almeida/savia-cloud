@@ -17,6 +17,7 @@ from config import Settings
 
 WEBHOOK_SECRET = "wsecret"
 CRON_SECRET = "csecret"
+ADMIN_PASSWORD = "operator-pass-1"
 
 
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "sqlite://")
@@ -43,6 +44,8 @@ def settings():
         cron_secret=CRON_SECRET,
         default_lat=39.47,
         default_lon=-0.38,
+        admin_password=ADMIN_PASSWORD,  # seeded operator, past the forced change
+        allow_registration=True,        # the API tests self-register users
     )
 
 

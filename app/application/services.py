@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from ..adapters.ttn import codec
@@ -38,7 +38,10 @@ from .errors import (
     Forbidden,
     InsufficientData,
     InvalidCredentials,
+    InvalidInput,
     NotFound,
+    PasswordChangeRequired,
+    RegistrationClosed,
     StationClaimed,
     Unauthorized,
 )
@@ -59,6 +62,13 @@ MAX_SOIL_GAP_H = 6              # >6 contiguous missing soil hours -> refuse
 MIN_REAL_HOURS = 24             # real hourly buckets needed inside the 48 h window
 MAX_NEWEST_AGE_H = 2            # how old the newest REAL bucket may be (firmware: 0)
 SESSION_TTL_S = 30 * 86400     # bearer token lifetime: 30 days
+STATION_MODES = ("forward", "local")
+# Seeded operator password: the panel forces a change, the JSON API refuses it.
+DEFAULT_ADMIN_PASSWORD = "admin"
+MIN_PASSWORD_LEN = 8
+# Plausible soil timestamps; anything else is junk that would also overflow int32.
+TS_MIN_S = 1_577_836_800          # 2020-01-01T00:00Z
+TS_FUTURE_SLACK_S = 86400         # tolerate a day of clock skew ahead of the backend
 
 
 def _now_s() -> int:
@@ -152,24 +162,31 @@ class AuthService:
         hash_pw: Callable[[str], str],
         verify_pw: Callable[[str, str], bool],
         clock: Callable[[], int] = _now_s,
+        allow_registration: bool = True,
     ):
         self._users = users
         self._sessions = sessions
         self._hash = hash_pw
         self._verify = verify_pw
         self._clock = clock
+        self._allow_registration = allow_registration
 
     def register(self, email: str, password: str) -> User:
+        if not self._allow_registration:
+            raise RegistrationClosed("self-registration is disabled on this server")
         if not email or not password:
             raise InvalidCredentials("email and password required")
         if self._users.get_by_email(email):
             raise EmailTaken(email)
         return self._users.add(email, self._hash(password))
 
-    def login(self, email: str, password: str) -> str:
+    def login(self, email: str, password: str, allow_default: bool = False) -> str:
+        """Issue a session token; the default password is only accepted by the panel."""
         user = self._users.get_by_email(email)
         if not user or not self._verify(user.pw_hash, password):
             raise InvalidCredentials("bad email or password")
+        if password == DEFAULT_ADMIN_PASSWORD and not allow_default:
+            raise PasswordChangeRequired("change the default password in the web panel first")
         token = secrets.token_urlsafe(32)
         self._sessions.create(Session(token, user.id, self._clock() + SESSION_TTL_S))
         return token
@@ -186,12 +203,37 @@ class AuthService:
     def change_password(self, user: User, old_password: str, new_password: str) -> None:
         if not new_password:
             raise InvalidCredentials("new password required")
+        if new_password == DEFAULT_ADMIN_PASSWORD or len(new_password) < MIN_PASSWORD_LEN:
+            raise InvalidInput(f"the new password needs at least {MIN_PASSWORD_LEN} "
+                               "characters and cannot be the default one")
         if not self._verify(user.pw_hash, old_password):
             raise InvalidCredentials("current password is wrong")
         self._users.update_password(user.id, self._hash(new_password))
 
 
 # --- station ownership -------------------------------------------------------
+
+def _check_mode(mode: str) -> str:
+    if mode not in STATION_MODES:
+        raise InvalidInput(f"mode must be one of {', '.join(STATION_MODES)}")
+    return mode
+
+
+def _apply_station_patch(st: Station, patch: dict) -> None:
+    """Apply an API/panel patch in place; bad values raise InvalidInput (400)."""
+    if "name" in patch:
+        st.name = str(patch["name"])
+    if "mode" in patch:
+        st.mode = _check_mode(str(patch["mode"]))
+    try:
+        for key in ("lat", "lon"):
+            if key in patch:
+                setattr(st, key, float(patch[key]))
+        if "utc_offset_min" in patch:
+            st.utc_offset_min = int(patch["utc_offset_min"])
+    except (TypeError, ValueError, OverflowError):
+        raise InvalidInput("lat/lon must be numbers and utc_offset_min an integer") from None
+
 
 class StationService:
     """Claim + owner-scoped read/update of stations."""
@@ -222,14 +264,7 @@ class StationService:
 
     def update(self, user_id: int, dev_eui: str, patch: dict) -> Station:
         st = self.get_owned(user_id, dev_eui)
-        for key in ("name", "mode"):
-            if key in patch:
-                st.__setattr__(key, str(patch[key]))
-        for key in ("lat", "lon"):
-            if key in patch:
-                st.__setattr__(key, float(patch[key]))
-        if "utc_offset_min" in patch:
-            st.utc_offset_min = int(patch["utc_offset_min"])
+        _apply_station_patch(st, patch)
         self._stations.save(st)
         return st
 
@@ -282,6 +317,8 @@ class IngestUplinkService:
         kind = decoded.get("type")
         if kind == "soil":
             for rec in decoded["records"]:
+                if not (TS_MIN_S <= rec["ts_hour_s"] <= at_s + TS_FUTURE_SLACK_S):
+                    continue   # clockless or corrupted bucket: logged raw, not stored
                 self._readings.upsert_soil(SoilReading(
                     dev_eui=dev_eui,
                     ts_hour_s=rec["ts_hour_s"],
@@ -294,9 +331,9 @@ class IngestUplinkService:
             st.lon = decoded["lon"]
             st.utc_offset_min = decoded["utc_offset_min"]
         elif kind == "cfg_ack" and self._downlinks is not None:
-            self._downlinks.confirm_latest(dev_eui, "config", "{}: {} aplicados, {} rechazados"
-                                           .format(DL_APPLIED, decoded.get("applied", 0),
-                                                   decoded.get("rejected", 0)))
+            self._downlinks.confirm_oldest_queued(
+                dev_eui, "config", "{}: {} aplicados, {} rechazados".format(
+                    DL_APPLIED, decoded.get("applied", 0), decoded.get("rejected", 0)))
         # forecast / boot: only the link-quality + last_uplink_at update above.
         self._stations.save(st)
         self._maybe_queue_clock_sync(dev_eui, at_s, force=(kind == "boot"))
@@ -306,8 +343,9 @@ class IngestUplinkService:
         (a BOOT frame) skips the gap check: the node just powered up clockless."""
         if self._ttn is None or self._downlinks is None:
             return
-        recent = self._downlinks.list_recent(dev_eui, 10)
-        last = next((d.ts_s for d in recent if d.kind == "time_ta"), None)
+        # Failed pushes do not count, so the next uplink retries the sync.
+        recent = self._downlinks.list_recent(dev_eui, 5, kind="time_ta")
+        last = next((d.ts_s for d in recent if d.state != DL_FAILED), None)
         if not force and last is not None and at_s - last < TIME_SYNC_GAP_S:
             return
         payload = codec.encode_downlink_time_ta([], [], at_s)   # 8 B pure clock
@@ -361,8 +399,12 @@ class ScheduleDownlinkService:
         fc = self._forecast.fetch(lat, lon)
         payload = codec.encode_downlink_time_ta(fc.past_ta, fc.future_ta, now_s)
         cmd = DownlinkCommand(dev_id=dev_eui, f_port=FPORT, payload=payload)
-        self._ttn.schedule_downlink(cmd)
-        self._log.add(dev_eui, now_s, "time_ta", payload.hex(), "scheduled")
+        try:
+            self._ttn.schedule_downlink(cmd)
+        except Exception as e:
+            self._log.add(dev_eui, now_s, "time_ta", payload.hex(), f"{DL_FAILED}: {e}"[:200])
+            raise
+        self._log.add(dev_eui, now_s, "time_ta", payload.hex(), DL_QUEUED)
         return cmd
 
 
@@ -430,30 +472,57 @@ class RunCloudInferenceService:
         return pred
 
 
+@dataclass
+class CronReport:
+    """Outcome of one cron tick, per station."""
+    ran: list[str] = field(default_factory=list)
+    skipped: dict[str, str] = field(default_factory=dict)   # dev_eui -> why
+    failed: dict[str, str] = field(default_factory=dict)    # dev_eui -> error
+
+
 class DailyCronService:
-    """Run FORWARD inference for the stations whose LOCAL hour matches daily_hour."""
+    """Run FORWARD inference at each station's local daily hour, once per slot."""
 
     def __init__(
         self,
         stations: StationRepository,
         run_inference: RunCloudInferenceService,
         daily_hour: int,
+        forecasts: ForecastRepository | None = None,
+        log: Callable[[str], None] | None = None,
     ):
         self._stations = stations
         self._run = run_inference
         self._daily_hour = daily_hour
+        self._forecasts = forecasts
+        self._log = log or (lambda msg: None)
 
-    def run(self, now_s: int, force: bool = False) -> list[str]:
-        done = []
+    def _ran_this_slot(self, st: Station, now_s: int) -> bool:
+        """True when a run is already stored for this station's current local hour."""
+        last = self._forecasts.latest_run(st.dev_eui) if self._forecasts else None
+        if last is None:
+            return False
+        offset = st.utc_offset_min * 60
+        return (last.run_ts_s + offset) // HOUR_S == (now_s + offset) // HOUR_S
+
+    def run(self, now_s: int, force: bool = False) -> CronReport:
+        report = CronReport()
         for st in self._stations.list_by_mode("forward"):
             local_hour = ((now_s + st.utc_offset_min * 60) // HOUR_S) % 24
-            if force or local_hour == self._daily_hour:
-                try:
-                    self._run.run(st, now_s)
-                    done.append(st.dev_eui)
-                except InsufficientData:
-                    continue   # skip stations without a usable window this run
-        return done
+            if not force and local_hour != self._daily_hour:
+                continue
+            if not force and self._ran_this_slot(st, now_s):
+                report.skipped[st.dev_eui] = "already ran in this daily slot"
+                continue
+            try:
+                self._run.run(st, now_s)
+                report.ran.append(st.dev_eui)
+            except InsufficientData as e:
+                report.skipped[st.dev_eui] = str(e)
+            except Exception as e:   # one station's failure never stops the rest
+                report.failed[st.dev_eui] = f"{type(e).__name__}: {e}"[:200]
+                self._log(f"daily inference failed for {st.dev_eui}: {e}")
+        return report
 
 
 class PanelService:
@@ -499,26 +568,14 @@ class PanelService:
         return self._forecasts.latest_run(dev_eui)
 
     def config_state(self, dev_eui: str) -> dict | None:
-        """Drift between the stored config and the station: the newest config
-        downlink when it is still queued or failed, None once the node acked it."""
-        for d in self._downlinks.list_recent(dev_eui, 25):
-            if d.kind != "config":
-                continue
-            if d.state == DL_APPLIED:
-                return None
+        """Newest config downlink as {state, ts_s, detail}; None if none was ever sent."""
+        for d in self._downlinks.list_recent(dev_eui, 1, kind="config"):
             return {"state": d.state, "ts_s": d.ts_s, "detail": d.status}
         return None
 
     def update_station(self, dev_eui: str, patch: dict) -> Station:
         st = self.station(dev_eui)
-        for key in ("name", "mode"):
-            if key in patch:
-                setattr(st, key, str(patch[key]))
-        for key in ("lat", "lon"):
-            if key in patch:
-                setattr(st, key, float(patch[key]))
-        if "utc_offset_min" in patch:
-            st.utc_offset_min = int(patch["utc_offset_min"])
+        _apply_station_patch(st, patch)
         self._stations.save(st)
         return st
 
@@ -537,6 +594,7 @@ class PanelService:
         nothing is stored locally if that provisioning fails."""
         if self._stations.get(dev_eui):
             raise StationClaimed(dev_eui)
+        _check_mode(mode)
         if ttn_keys:
             if self._ttn is None:
                 raise ValueError("TTN provisioning not available")

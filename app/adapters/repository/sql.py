@@ -203,25 +203,24 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
             ))
             s.commit()
 
-    def list_recent(self, dev_eui: str, limit: int) -> list[DownlinkRecord]:
+    def list_recent(self, dev_eui: str, limit: int,
+                    kind: str | None = None) -> list[DownlinkRecord]:
         with self._sm() as s:
-            rows = s.scalars(
-                select(orm.DownlinkLogRow)
-                .where(orm.DownlinkLogRow.dev_eui == dev_eui)
-                .order_by(orm.DownlinkLogRow.id.desc())
-                .limit(limit)
-            ).all()
+            q = select(orm.DownlinkLogRow).where(orm.DownlinkLogRow.dev_eui == dev_eui)
+            if kind is not None:
+                q = q.where(orm.DownlinkLogRow.kind == kind)
+            rows = s.scalars(q.order_by(orm.DownlinkLogRow.id.desc()).limit(limit)).all()
             return [DownlinkRecord(r.dev_eui, r.ts_s, r.kind, r.payload_hex, r.status)
                     for r in rows]
 
-    def confirm_latest(self, dev_eui: str, kind: str, status: str) -> bool:
+    def confirm_oldest_queued(self, dev_eui: str, kind: str, status: str) -> bool:
         with self._sm() as s:
             row = s.scalars(
                 select(orm.DownlinkLogRow)
                 .where(orm.DownlinkLogRow.dev_eui == dev_eui,
                        orm.DownlinkLogRow.kind == kind,
                        orm.DownlinkLogRow.status == DL_QUEUED)
-                .order_by(orm.DownlinkLogRow.id.desc())
+                .order_by(orm.DownlinkLogRow.id.asc())
                 .limit(1)
             ).first()
             if row is None:

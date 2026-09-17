@@ -1,8 +1,9 @@
 """Web panel (driving adapter): server-rendered operator console.
 
-Authenticates against the same AuthService as the JSON API (default operator
-account admin/admin, seeded in create_app); the bearer token lives in the Flask
-session cookie. Fleet-wide queries go through PanelService.
+Authenticates against the same AuthService as the JSON API (operator account
+`admin`, seeded in create_app; while it keeps the default password every page
+redirects to the password form); the bearer token lives in the Flask session
+cookie. Fleet-wide queries go through PanelService.
 """
 from __future__ import annotations
 
@@ -24,8 +25,8 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from ...adapters.ttn import codec
-from ...application.errors import AppError, InsufficientData, Unauthorized
-from ...application.services import Services
+from ...application.errors import AppError, InsufficientData, StationClaimed, Unauthorized
+from ...application.services import DEFAULT_ADMIN_PASSWORD, Services
 from ...domain.models import DL_APPLIED, DL_FAILED, DL_QUEUED
 
 bp = Blueprint("web", __name__, url_prefix="/home",
@@ -85,11 +86,15 @@ def _current_user():
 
 @bp.before_request
 def _gate():
-    """Every /ui page except login requires the operator session."""
+    """Operator session required; a default password must be replaced first."""
     if request.endpoint in ("web.login", "web.static"):
         return None
     if _current_user() is None:
         return redirect(url_for("web.login"))
+    if session.get("must_change_pw") and request.endpoint not in ("web.password",
+                                                                   "web.logout"):
+        flash("Cambia la contraseña por defecto antes de continuar", "error")
+        return redirect(url_for("web.password"))
     return None
 
 
@@ -174,19 +179,26 @@ def _summary(u_type: str, payload_hex: str) -> str:
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        password = request.form.get("password", "")
         try:
-            token = _services().auth.login(request.form.get("user", ""),
-                                           request.form.get("password", ""))
-            session["token"] = token
-            return redirect(url_for("web.dashboard"))
+            token = _services().auth.login(request.form.get("user", ""), password,
+                                           allow_default=True)
         except AppError:
             flash("Usuario o contraseña incorrectos", "error")
+            return render_template("login.html")
+        session.clear()
+        session["token"] = token
+        if password == DEFAULT_ADMIN_PASSWORD:
+            session["must_change_pw"] = True
+            flash("Estás usando la contraseña por defecto: cámbiala para continuar", "error")
+            return redirect(url_for("web.password"))
+        return redirect(url_for("web.dashboard"))
     return render_template("login.html")
 
 
 @bp.post("/logout")
 def logout():
-    session.pop("token", None)
+    session.clear()
     return redirect(url_for("web.login"))
 
 
@@ -199,6 +211,7 @@ def password():
                 request.form.get("current", ""),
                 request.form.get("new", ""),
             )
+            session.pop("must_change_pw", None)
             flash("Contraseña actualizada", "ok")
             return redirect(url_for("web.dashboard"))
         except AppError as e:
@@ -235,7 +248,7 @@ def station_new():
                 lon=float(f.get("lon") or 0.0),
                 ttn_keys=ttn_keys,
             )
-        except AppError:
+        except StationClaimed:
             flash(f"El dispositivo '{dev_id}' ya existe", "error")
             return render_template("station_new.html", timezones=TIMEZONES, form=f)
         except Exception as e:

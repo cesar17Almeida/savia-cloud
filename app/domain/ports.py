@@ -128,14 +128,16 @@ class DownlinkLogRepository(ABC):
     def add(self, dev_eui: str, ts_s: int, kind: str, payload_hex: str, status: str) -> None: ...
 
     @abstractmethod
-    def list_recent(self, dev_eui: str, limit: int) -> list[DownlinkRecord]:
-        """Latest scheduled downlinks, newest first."""
+    def list_recent(self, dev_eui: str, limit: int,
+                    kind: str | None = None) -> list[DownlinkRecord]:
+        """Latest scheduled downlinks, newest first, optionally of one kind."""
         ...
 
     @abstractmethod
-    def confirm_latest(self, dev_eui: str, kind: str, status: str) -> bool:
-        """Close the newest still-queued downlink of that kind (the node acked it).
-        False when there was nothing waiting."""
+    def confirm_oldest_queued(self, dev_eui: str, kind: str, status: str) -> bool:
+        """Close the OLDEST still-queued downlink of that kind: TTN drains its queue
+        FIFO, so a CFG_ACK answers the first config pushed, not the last. False when
+        nothing was waiting."""
         ...
 
 

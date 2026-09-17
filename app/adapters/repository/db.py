@@ -7,6 +7,7 @@ keeps every test on one connection so the schema survives between requests.
 from __future__ import annotations
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -27,5 +28,9 @@ def make_sessionmaker(db_url: str) -> sessionmaker:
         # PostgreSQL: pre-ping drops stale pooled connections after a server restart
         # instead of failing the first request with them.
         engine = create_engine(db_url, pool_pre_ping=True)
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except DBAPIError:
+        # Another worker created the schema concurrently; a second pass finds it.
+        Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)

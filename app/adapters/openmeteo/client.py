@@ -52,6 +52,9 @@ class OpenMeteoForecast(ForecastPort):
         if idx < PAST_STEPS - 1 or idx + FUTURE_STEPS >= len(temps):
             raise ValueError("Open-Meteo series does not cover the LSTM window")
 
-        past = [float(temps[i]) for i in range(idx - PAST_STEPS + 1, idx + 1)]
-        future = [float(temps[i]) for i in range(idx + 1, idx + 1 + FUTURE_STEPS)]
+        window = temps[idx - PAST_STEPS + 1: idx + 1 + FUTURE_STEPS]
+        if any(t is None for t in window):
+            raise ValueError("Open-Meteo series has missing temperatures in the LSTM window")
+        past = [float(t) for t in window[:PAST_STEPS]]
+        future = [float(t) for t in window[PAST_STEPS:]]
         return Forecast(past_ta=past, future_ta=future, generated_at_ms=int(now.timestamp() * 1000))

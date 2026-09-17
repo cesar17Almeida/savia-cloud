@@ -5,6 +5,10 @@ import os
 from dataclasses import dataclass
 
 
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     # TTN (The Things Stack, eu1 cluster).
@@ -34,6 +38,12 @@ class Settings:
     port: int = 8000
     # Flask session-cookie signing key (web panel). Set SECRET_KEY in production.
     secret_key: str = "dev-not-secret"
+    # Mark the panel cookie Secure (the site is served over HTTPS).
+    cookie_secure: bool = False
+    # Initial password of the seeded operator; empty = default, forced to change.
+    admin_password: str = ""
+    # Self-service POST /auth/register; closed unless explicitly enabled.
+    allow_registration: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -51,4 +61,7 @@ class Settings:
             host=os.getenv("HOST", cls.host),
             port=int(os.getenv("PORT", cls.port)),
             secret_key=os.getenv("SECRET_KEY", cls.secret_key),
+            cookie_secure=_env_flag("SESSION_COOKIE_SECURE"),
+            admin_password=os.getenv("ADMIN_PASSWORD", ""),
+            allow_registration=_env_flag("ALLOW_REGISTRATION"),
         )

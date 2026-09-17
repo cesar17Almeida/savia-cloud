@@ -132,3 +132,12 @@ def test_config_tlv_out_of_range_raises(fields):
 ])
 def test_config_tlv_boundaries_ok(fields):
     assert codec.encode_config_patch_tlv(fields)[:2] == b"\x02\x02"
+
+
+@pytest.mark.parametrize("fields", [
+    {"sleep_s": None}, {"sleep_s": "abc"}, {"lat": None}, {"lon": "west"},
+    {"sleep_s": float("inf")}, {"lat": float("nan")},
+])
+def test_config_tlv_non_numeric_raises_value_error(fields):
+    with pytest.raises(ValueError):
+        codec.encode_config_patch_tlv(fields)

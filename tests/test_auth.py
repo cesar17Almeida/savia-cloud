@@ -51,3 +51,59 @@ def test_claim_is_idempotent_for_owner(client):
     client.post("/stations/claim", json={"dev_eui": "EUI-C"}, headers=h)
     assert client.post("/stations/claim", json={"dev_eui": "EUI-C", "name": "renamed"}, headers=h).status_code == 201
     assert client.get("/stations/EUI-C", headers=h).get_json()["name"] == "renamed"
+
+
+def test_registration_is_closed_unless_enabled(settings):
+    from dataclasses import replace
+
+    from app.factory import create_app
+    from config import Settings
+
+    assert Settings().allow_registration is False          # production default
+    client = create_app(replace(settings, allow_registration=False)).test_client()
+    r = client.post("/auth/register", json={"email": "x@y.z", "password": "pw12345"})
+    assert r.status_code == 403 and r.get_json()["error"] == "RegistrationClosed"
+
+
+def test_api_refuses_the_default_operator_password(settings):
+    from dataclasses import replace
+
+    from app.factory import create_app
+
+    client = create_app(replace(settings, admin_password="")).test_client()
+    r = client.post("/auth/login", json={"email": "admin", "password": "admin"})
+    assert r.status_code == 403 and r.get_json()["error"] == "PasswordChangeRequired"
+    bad = client.post("/auth/login", json={"email": "admin", "password": "nope"})
+    assert bad.status_code == 401
+
+
+def test_non_object_json_body_is_a_400(client):
+    r = client.post("/auth/login", json=[1, 2])
+    assert r.status_code == 400 and r.is_json
+
+
+def test_malformed_station_update_is_a_json_400(client):
+    h = auth_headers(client, "bad@x.com")
+    client.post("/stations/claim", json={"dev_eui": "EUI-BAD"}, headers=h)
+    for body in ({"lat": "abc"}, {"utc_offset_min": None}, {"mode": "cloud"}):
+        r = client.put("/stations/EUI-BAD", json=body, headers=h)
+        assert r.status_code == 400 and r.is_json, body
+    assert client.get("/stations/EUI-BAD", headers=h).get_json()["mode"] == "forward"
+
+
+def test_bad_limit_falls_back_to_the_default(client):
+    h = auth_headers(client, "lim@x.com")
+    client.post("/stations/claim", json={"dev_eui": "EUI-LIM"}, headers=h)
+    for q in ("abc", "-5", "100000"):
+        r = client.get(f"/stations/EUI-LIM/readings?limit={q}", headers=h)
+        assert r.status_code == 200, q
+
+
+def test_unexpected_api_error_is_json_not_html(client, monkeypatch):
+    h = auth_headers(client, "boom@x.com")
+    monkeypatch.setattr("app.application.services.StationService.get_owned",
+                        lambda self, uid, dev: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = client.get("/stations/EUI-ANY", headers=h)
+    assert r.status_code == 500 and r.is_json
+    assert r.get_json()["error"] == "InternalError"
+    assert "boom" not in r.get_data(as_text=True)
