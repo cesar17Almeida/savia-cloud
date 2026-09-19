@@ -141,3 +141,41 @@ def test_config_tlv_boundaries_ok(fields):
 def test_config_tlv_non_numeric_raises_value_error(fields):
     with pytest.raises(ValueError):
         codec.encode_config_patch_tlv(fields)
+
+
+# --- downlink decode (panel) ---------------------------------------------------
+
+def test_time_ta_downlink_roundtrip():
+    frame = codec.encode_downlink_time_ta([21.4, -3.6, 30.5], [18.0, 127.9], 1_789_000_000)
+    assert codec.downlink_kind(frame) == "time_ta"
+    assert codec.decode_downlink_time_ta(frame) == {
+        "clock_epoch_s": 1_789_000_000,
+        "past_ta": [21, -4, 31],          # int8, rounded half away from zero
+        "future_ta": [18, 127],           # clamped
+    }
+
+
+def test_time_ta_clock_only_decodes_to_empty_arrays():
+    d = codec.decode_downlink_time_ta(codec.encode_downlink_time_ta([], [], 0))
+    assert d == {"clock_epoch_s": None, "past_ta": [], "future_ta": []}
+
+
+@pytest.mark.parametrize("frame", [
+    b"", hexb("02 02 01 04 00 00 02 58"),      # empty / a CONFIG frame
+    hexb("02 01 00 00 00 00 02 00 15"),         # announces 2 TA bytes, carries 1
+    hexb("02 01 00 00 00 00 31 00") + bytes(49),   # 49 past values > window
+])
+def test_time_ta_decode_rejects_malformed(frame):
+    with pytest.raises(ValueError):
+        codec.decode_downlink_time_ta(frame)
+
+
+def test_config_tlv_roundtrip():
+    fields = {"sleep_s": 600, "deep_sleep": 1, "utc_offset_min": -300, "lat": 39.48, "lon": -0.34}
+    frame = codec.encode_config_patch_tlv(fields)
+    assert codec.downlink_kind(frame) == "config"
+    assert codec.decode_config_patch_tlv(frame) == fields
+    assert codec.decode_config_patch_tlv(hexb("02 02 7E 01 05")) == {"0x7E": 5}   # unknown id kept
+    with pytest.raises(ValueError):
+        codec.decode_config_patch_tlv(hexb("02 02 01 04 00 00"))                   # truncated value
+    assert codec.downlink_kind(b"\x01\x01") == "unknown"

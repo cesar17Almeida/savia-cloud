@@ -15,7 +15,7 @@ Uplinks (node -> backend), decoded here:
   0x06 BOOT      [2..5] lkg_epoch_s u32 (0 = none): first frame after power-up,
                  the node asks for the clock in this RX window
 
-Downlinks (backend -> node), encoded here:
+Downlinks (backend -> node), encoded here (and decoded back for the panel):
   0x01 TIME_TA   clock u32 epoch s (0 = none) | n_past u8 | n_future u8 |
                  n_past x TA i8 | n_future x TA i8
   0x02 CONFIG    TLV sequence: [id u8][len u8][value big-endian]
@@ -32,6 +32,8 @@ UP_CFG_ACK = 0x04
 UP_BOOT = 0x06        # 0x05 stays reserved for the generic uplink
 DN_TIME_TA = 0x01
 DN_CONFIG = 0x02
+# Downlink kind as logged in downlink_log.kind, by message type.
+DN_KINDS = {DN_TIME_TA: "time_ta", DN_CONFIG: "config"}
 
 TA_PAST_MAX = 48
 TA_FUTURE_MAX = 24
@@ -223,3 +225,49 @@ def encode_config_patch_tlv(fields: dict) -> bytes:
         out.append(width)
         out += value.to_bytes(width, "big", signed=signed)
     return bytes(out)
+
+
+# --- downlink decode (panel + tests; the node has its own decoder) -------------
+
+def downlink_kind(data: bytes) -> str:
+    """Logged kind of an encoded downlink frame: "time_ta" / "config" / "unknown"."""
+    if len(data) < 2 or data[0] != VERSION:
+        return "unknown"
+    return DN_KINDS.get(data[1], "unknown")
+
+
+def decode_downlink_time_ta(data: bytes) -> dict:
+    """Decode a TIME_TA downlink into {"clock_epoch_s": int|None, "past_ta": [int],
+    "future_ta": [int]} (degC as sent, int8). Raises ValueError when malformed."""
+    if len(data) < 8 or data[0] != VERSION or data[1] != DN_TIME_TA:
+        raise ValueError("bad time_ta downlink")
+    n_past, n_future = data[6], data[7]
+    if n_past > TA_PAST_MAX or n_future > TA_FUTURE_MAX:
+        raise ValueError("TA array exceeds the LSTM window")
+    if len(data) < 8 + n_past + n_future:
+        raise ValueError("short time_ta downlink")
+    ta = [b - 0x100 if b & 0x80 else b for b in data[8:8 + n_past + n_future]]
+    return {
+        "clock_epoch_s": _u32(data[2:6]) or None,
+        "past_ta": ta[:n_past],
+        "future_ta": ta[n_past:],
+    }
+
+
+def decode_config_patch_tlv(data: bytes) -> dict:
+    """Decode a CONFIG downlink back into its patch dict (lat/lon in degrees); an
+    unknown field id is kept under "0xNN". Raises ValueError when malformed."""
+    if len(data) < 2 or data[0] != VERSION or data[1] != DN_CONFIG:
+        raise ValueError("bad config downlink")
+    by_id = {spec[0]: (key, spec[2]) for key, spec in _TLV_FIELDS.items()}
+    out: dict = {}
+    off = 2
+    while off < len(data):
+        if off + 2 > len(data) or off + 2 + data[off + 1] > len(data):
+            raise ValueError("truncated config TLV")
+        fid, width = data[off], data[off + 1]
+        key, signed = by_id.get(fid, (f"0x{fid:02X}", False))
+        value = int.from_bytes(data[off + 2:off + 2 + width], "big", signed=signed)
+        out[key] = value / 1e7 if key in ("lat", "lon") else value
+        off += 2 + width
+    return out
