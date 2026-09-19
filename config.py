@@ -44,6 +44,11 @@ class Settings:
     admin_password: str = ""
     # Self-service POST /auth/register; closed unless explicitly enabled.
     allow_registration: bool = False
+    # TA source for the TIME_TA window: "openmeteo" or "dataset" (LSTM training set).
+    forecast_source: str = "openmeteo"
+    # UTC offset (min) that anchors the dataset replay to a local hour of day. FIXED
+    # and equal to the firmware's SAVIA_DEMO_UTC_OFFSET_MIN, never the station's own.
+    replay_utc_offset_min: int = 120
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -64,4 +69,7 @@ class Settings:
             cookie_secure=_env_flag("SESSION_COOKIE_SECURE"),
             admin_password=os.getenv("ADMIN_PASSWORD", ""),
             allow_registration=_env_flag("ALLOW_REGISTRATION"),
+            forecast_source=os.getenv("FORECAST_SOURCE", cls.forecast_source).strip().lower(),
+            replay_utc_offset_min=int(os.getenv("REPLAY_UTC_OFFSET_MIN",
+                                                cls.replay_utc_offset_min)),
         )

@@ -10,6 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import Settings
 
+from .adapters.dataset.forecast import DatasetForecast
 from .adapters.inference.lstm import LstmInference
 from .adapters.openmeteo.client import OpenMeteoForecast
 from .adapters.repository.db import make_sessionmaker
@@ -42,9 +43,13 @@ from .interfaces.web.routes import bp as web_bp
 # Operator account of the web panel.
 ADMIN_USER = "admin"
 
+FORECAST_SOURCES = ("openmeteo", "dataset")
+
 
 def create_app(settings: Settings | None = None) -> Flask:
     settings = settings or Settings.from_env()
+    if settings.forecast_source not in FORECAST_SOURCES:
+        raise ValueError(f"FORECAST_SOURCE must be one of {', '.join(FORECAST_SOURCES)}")
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
     app.secret_key = settings.secret_key
@@ -64,7 +69,9 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     # Outbound adapters.
     ttn = TtnHttpClient(settings)
-    forecast_src = OpenMeteoForecast(settings)
+    forecast_src = (DatasetForecast(settings.replay_utc_offset_min)
+                    if settings.forecast_source == "dataset"
+                    else OpenMeteoForecast(settings))
     infer = LstmInference(settings.model_path)
 
     run_inference = RunCloudInferenceService(readings, forecasts, forecast_src, infer, ttn, dl_log)
