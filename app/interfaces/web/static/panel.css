@@ -22,6 +22,8 @@ body {
   font-size: 15px;
   line-height: 1.45;
 }
+/* The hidden attribute must win over any display set by a class. */
+[hidden] { display: none !important; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.85em; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }
@@ -167,6 +169,7 @@ td .chip { font-size: 0.75em; }
 .chip-cfg_ack  { background: #f0ecf8; color: #6b4fa1; border-color: transparent; }
 .chip-config   { background: #faf1e4; color: #9a6b1f; border-color: transparent; }
 .chip-time_ta  { background: #e9f2f7; color: #2f6d8c; border-color: transparent; }
+.chip-boot     { background: #f3efe6; color: #7a6a3a; border-color: transparent; }
 .chip-unknown  { background: #fbeae8; color: #b3372f; border-color: transparent; }
 
 /* Layout helpers */
@@ -228,3 +231,172 @@ button:hover, a.btn:hover { border-color: var(--accent); color: var(--accent); }
 .forecast-strip { display: flex; gap: 3px; align-items: flex-end; height: 90px; margin: 0.6rem 0 0.3rem; }
 .bar-wrap { flex: 1; height: 100%; display: flex; align-items: flex-end; background: var(--bg); border-radius: 3px; }
 .bar { width: 100%; background: var(--accent); border-radius: 3px; min-height: 2px; opacity: 0.85; }
+
+/* In-flight notice: a downlink waiting for the station's RX window, its delivery,
+   and the forecast the station reports back. Collapsed while there is nothing to say. */
+.linkbar-wrap {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease, margin-bottom 0.3s ease;
+}
+.linkbar-wrap.is-open { grid-template-rows: 1fr; margin-bottom: 1.2rem; }
+.linkbar-clip { min-height: 0; overflow: hidden; }
+.linkbar {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 0.9rem;
+  padding: 0.85rem 1.1rem; border-radius: 14px;
+  border: 1px solid transparent;
+  transition: background 0.35s ease, color 0.35s ease;
+}
+.linkbar.is-idle { visibility: hidden; }
+.linkbar.is-sending   { background: #faf1e4; color: #7a5310; }
+.linkbar.is-delivered { background: var(--ok-bg); color: var(--accent); }
+.linkbar.is-result    { background: var(--accent); color: var(--accent-ink); }
+.lb-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.lb-title { font-size: 1.02rem; font-weight: 600; letter-spacing: 0.005em; }
+.lb-detail { font-size: 0.88em; opacity: 0.82; }
+.lb-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+.lb-meta { font-size: 0.78em; opacity: 0.85; white-space: nowrap; }
+
+/* State icon, drawn in CSS: spinner / check / forecast bars. */
+.lb-icon {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.lb-icon i { display: block; }
+.is-sending .lb-icon i {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  animation: lb-spin 0.8s linear infinite;
+}
+.is-delivered .lb-icon i {
+  width: 8px; height: 14px; margin-top: -3px;
+  border: solid currentColor; border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+  animation: lb-pop 0.35s ease-out;
+}
+.is-result .lb-icon i {
+  width: 16px; height: 14px;
+  background:
+    linear-gradient(currentColor, currentColor) 0 100% / 4px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 6px 100% / 4px 70% no-repeat,
+    linear-gradient(currentColor, currentColor) 12px 100% / 4px 45% no-repeat;
+  animation: lb-pop 0.35s ease-out;
+}
+
+/* nube ---o--- estacion: the packet waits at the cloud end, then crosses. */
+.lb-track { display: flex; align-items: center; gap: 0.45rem; font-size: 0.74em; opacity: 0.85; }
+.lb-line {
+  position: relative; width: 96px; height: 2px; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 8px);
+  opacity: 0.9;
+}
+.lb-line i {
+  position: absolute; top: 50%; left: 0; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; background: currentColor;
+}
+.is-sending .lb-line i { animation: lb-wait 1.3s ease-in-out infinite; }
+.is-delivered .lb-line i { animation: lb-cross 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.is-result .lb-line i { left: 100%; animation: lb-back 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+/* Indeterminate hairline while the downlink waits. */
+.is-sending::after {
+  content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 35%;
+  background: currentColor; opacity: 0.45; border-radius: 2px;
+  animation: lb-sweep 1.6s ease-in-out infinite;
+}
+@keyframes lb-spin  { to { transform: rotate(360deg); } }
+@keyframes lb-pop   { from { opacity: 0; scale: 0.5; } to { opacity: 1; scale: 1; } }
+@keyframes lb-wait  { 0%, 100% { opacity: 0.35; scale: 0.8; } 50% { opacity: 1; scale: 1.25; } }
+@keyframes lb-cross { from { left: 0; } to { left: 100%; } }
+@keyframes lb-back  { from { left: 100%; } to { left: 0; } }
+@keyframes lb-sweep { 0% { left: -35%; } 100% { left: 100%; } }
+@media (max-width: 720px) { .lb-track { display: none; } }
+
+/* Live communication card: frames both ways, newest first. */
+.live-card .card-head { margin-bottom: 0.35rem; }
+.live-card h2 { margin: 0; }
+.live-status { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82em; color: var(--muted); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: live-pulse 1.8s ease-out infinite; }
+.live-status.is-off .live-dot { background: var(--muted); animation: none; }
+@keyframes live-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}
+.live-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.1rem;
+  font-size: 0.82em; color: var(--muted); margin-bottom: 0.7rem;
+}
+.live-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.live-legend .tl-glyph { width: 18px; height: 18px; font-size: 0.78rem; }
+.live-legend .chip { font-size: 0.95em; }
+
+.timeline {
+  list-style: none; margin: 0 -0.4rem; padding: 0 0.4rem 1.2rem;
+  max-height: 560px; overflow-y: auto; overscroll-behavior: contain;
+  /* Older frames fade out instead of being cut mid-row. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.2rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.2rem), transparent);
+}
+.tl-empty { padding: 0.9rem 0; }
+.tl-row {
+  position: relative; display: flex; gap: 0.85rem;
+  padding: 0.7rem 0.5rem; border-radius: 10px;
+}
+.tl-row + .tl-row { border-top: 1px solid var(--line); border-radius: 0; }
+/* The thread that ties the frames together. */
+.tl-row::before {
+  content: ""; position: absolute; left: calc(0.5rem + 12px); top: 0; bottom: 0;
+  width: 1px; background: var(--line);
+}
+.tl-row:first-child::before { top: calc(0.7rem + 12px); }
+.tl-row:last-child::before { bottom: auto; height: calc(0.7rem + 12px); }
+.tl-row:only-child::before { display: none; }
+.tl-glyph {
+  position: relative; z-index: 1; flex: none;
+  width: 25px; height: 25px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  font-size: 0.92rem; font-weight: 700; line-height: 1; font-style: normal;
+}
+.tl-up .tl-glyph, .tl-glyph.up     { background: var(--ok-bg); color: var(--accent); }
+.tl-down .tl-glyph, .tl-glyph.down { background: #e9f2f7; color: #2f6d8c; }
+.tl-body { flex: 1; min-width: 0; }
+.tl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.55rem; }
+.tl-route { font-size: 0.8em; color: var(--muted); }
+.tl-bytes { font-size: 0.8em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-time { margin-left: auto; font-size: 0.8em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-summary { margin-top: 0.15rem; }
+.tl-hex {
+  margin-top: 0.3rem; color: var(--muted); font-size: 0.78em; letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tl-row.is-new { animation: tl-in 0.45s ease-out, tl-glow 2.4s ease-out; }
+.tl-row.is-changed { animation: tl-glow 2.4s ease-out; }
+@keyframes tl-in   { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes tl-glow { from { background: var(--ok-bg); } to { background: transparent; } }
+
+/* TA window of a TIME_TA downlink: 48 h behind + 24 h ahead, one bar per hour. */
+.ta-strip { margin-top: 0.5rem; max-width: 560px; }
+.ta-bars { display: flex; gap: 7px; height: 44px; }
+.ta-seg { display: flex; align-items: flex-end; gap: 1px; min-width: 0; }
+.ta-seg i { flex: 1; min-width: 0; border-radius: 1.5px 1.5px 0 0; }
+.ta-past i   { background: #2f6d8c; opacity: 0.55; }
+.ta-future i { background: var(--accent); opacity: 0.8; }
+.ta-axis { display: flex; gap: 7px; margin-top: 3px; font-size: 0.72em; color: var(--muted); }
+.ta-axis span { border-top: 1px solid var(--line); padding-top: 2px; min-width: 0; white-space: nowrap; }
+.ta-cap { margin-top: 0.2rem; font-size: 0.78em; color: var(--muted); display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+.ta-range { font-variant-numeric: tabular-nums; }
+
+/* Forecast reported by a station that infers on board (one value over LoRa). */
+.onboard { display: flex; align-items: center; gap: 0.9rem; margin-top: 0.4rem; }
+.onboard[hidden] { display: none; }
+.onboard-value { font-size: 2rem; font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.onboard-label { line-height: 1.35; }
+.onboard.is-changed .onboard-value { animation: lb-pop 0.4s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .linkbar-wrap, .linkbar { transition: none; }
+  .linkbar *, .linkbar::after, .tl-row, .live-dot, .onboard-value { animation: none !important; }
+  .is-delivered .lb-line i { left: 100%; }
+  .is-result .lb-line i { left: 0; }
+}

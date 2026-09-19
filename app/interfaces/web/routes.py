@@ -15,6 +15,7 @@ from flask import (
     Blueprint,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -25,9 +26,23 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from ...adapters.ttn import codec
-from ...application.errors import AppError, InsufficientData, StationClaimed, Unauthorized
+from ...application.errors import (
+    AppError,
+    InsufficientData,
+    NotFound,
+    StationClaimed,
+    Unauthorized,
+)
 from ...application.services import DEFAULT_ADMIN_PASSWORD, Services
-from ...domain.models import DL_APPLIED, DL_DELIVERED, DL_FAILED, DL_QUEUED
+from ...domain.models import (
+    DL_APPLIED,
+    DL_DELIVERED,
+    DL_FAILED,
+    DL_QUEUED,
+    DownlinkRecord,
+    Station,
+    UplinkRecord,
+)
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -90,6 +105,8 @@ def _gate():
     if request.endpoint in ("web.login", "web.static"):
         return None
     if _current_user() is None:
+        if request.endpoint == "web.station_live":   # polled: no HTML login page
+            return jsonify(error="Unauthorized", message="session required"), 401
         return redirect(url_for("web.login"))
     if session.get("must_change_pw") and request.endpoint not in ("web.password",
                                                                    "web.logout"):
@@ -173,6 +190,173 @@ def _summary(u_type: str, payload_hex: str) -> str:
             return "arranque sin hora de referencia"
         return "arranque; última hora fiable " + time.strftime("%Y-%m-%d %H:%M", time.gmtime(lkg)) + " UTC"
     return "—"
+
+
+# --- live communication ------------------------------------------------------
+
+LIVE_UPLINKS = 12
+LIVE_DOWNLINKS = 8
+BANNER_DELIVERED_S = 6     # how long "delivered" stays on screen
+BANNER_RESULT_S = 90       # how long the station's forecast stays on screen
+
+
+@bp.app_template_filter("es_num")
+def _es_num(value: float, decimals: int = 3) -> str:
+    """Spanish decimal comma: 0.742 -> '0,742'."""
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+@bp.app_template_filter("clock")
+def _fmt_clock(ts_s: int, offset_min: int = 0) -> str:
+    """Epoch seconds -> 'HH:MM:SS' station-local; live.js swaps it for 'hace 4 s'."""
+    return time.strftime("%H:%M:%S", time.gmtime(int(ts_s) + offset_min * 60))
+
+
+HEX_PREVIEW_BYTES = 24
+
+
+@bp.app_template_filter("hex_bytes")
+def _hex_bytes(payload_hex: str) -> str:
+    """'02016a45...' -> '02 01 6a 45 …', cut after HEX_PREVIEW_BYTES bytes."""
+    pairs = [payload_hex[i:i + 2] for i in range(0, len(payload_hex), 2)]
+    more = " …" if len(pairs) > HEX_PREVIEW_BYTES else ""
+    return " ".join(pairs[:HEX_PREVIEW_BYTES]) + more
+
+
+def _dl_summary(kind: str, payload: bytes) -> tuple[str, dict | None]:
+    """Human one-liner for a logged downlink + its TA window when it carries one."""
+    try:
+        if kind == "time_ta":
+            d = codec.decode_downlink_time_ta(payload)
+            clock = d["clock_epoch_s"]
+            hour = time.strftime("%H:%M:%S", time.gmtime(clock)) + " UTC" if clock else "sin hora"
+            past, future = d["past_ta"], d["future_ta"]
+            if not past and not future:
+                return f"sincronización de hora · {hour}", None
+            both = past + future
+            return (f"hora {hour} + temperatura del aire: {len(past)} h anteriores "
+                    f"y {len(future)} h de previsión",
+                    {"past": past, "future": future, "min": min(both), "max": max(both)})
+        if kind == "config":
+            fields = codec.decode_config_patch_tlv(payload)
+            return "configuración: " + ", ".join(f"{k} = {v}" for k, v in fields.items()), None
+    except ValueError:
+        pass
+    return "no decodificable", None
+
+
+def _live_uplink(u: UplinkRecord) -> dict:
+    out = {
+        "id": u.id, "ts_s": u.ts_s, "type": u.u_type,
+        "summary": _summary(u.u_type, u.payload_hex),
+        "payload_hex": u.payload_hex, "bytes": len(u.payload_hex) // 2,
+    }
+    if u.u_type == "forecast":
+        try:
+            out["hs30_min"] = codec.decode_uplink(bytes.fromhex(u.payload_hex)).get("hs30_min")
+        except (ValueError, TypeError):
+            out["hs30_min"] = None
+    return out
+
+
+def _live_downlink(d: DownlinkRecord, deliveries: dict[str, int]) -> dict:
+    try:
+        payload = bytes.fromhex(d.payload_hex)
+    except ValueError:
+        payload = b""
+    summary, ta = _dl_summary(d.kind, payload)
+    out = {
+        "id": d.id, "ts_s": d.ts_s, "kind": d.kind, "state": d.state,
+        "label": _dl_label(d.status), "summary": summary,
+        "payload_hex": d.payload_hex, "bytes": len(payload),
+        # When the station took it (HTTP link); None while queued or over TTN.
+        "delivered_s": (deliveries.get(d.payload_hex)
+                        if d.state in (DL_DELIVERED, DL_APPLIED) else None),
+    }
+    if ta is not None:
+        out["ta"] = ta
+    return out
+
+
+def _live_forecast(svc: Services, dev_eui: str, uplinks: list[dict]) -> dict | None:
+    """Newest known forecast: a stored cloud run or the value the station reported."""
+    best = None
+    run = svc.panel.latest_forecast(dev_eui)
+    if run is not None and run.hs30:
+        best = {"run_ts_s": run.run_ts_s, "hs30_min": min(run.hs30), "source": "cloud"}
+    reported = next((u for u in uplinks if u.get("hs30_min") is not None), None)
+    if reported and (best is None or reported["ts_s"] >= best["run_ts_s"]):
+        best = {"run_ts_s": reported["ts_s"], "hs30_min": reported["hs30_min"],
+                "source": "station"}
+    return best
+
+
+def _banner(uplinks: list[dict], downlinks: list[dict], now_s: int) -> dict | None:
+    """In-flight notice of the station page (both lists newest first): a queued
+    downlink, then its delivery, then the forecast the station sends after inferring."""
+    queued = [d for d in downlinks if d["state"] == DL_QUEUED]
+    if queued:
+        nxt = queued[-1]   # FIFO: the oldest one leaves first
+        more = f" · {len(queued) - 1} más en cola" if len(queued) > 1 else ""
+        return {"state": "sending", "key": f"d{nxt['id']}",
+                "title": "Enviando paquete por LoRa…",
+                "detail": "esperando la ventana de recepción de la estación" + more,
+                "meta": f"{nxt['kind']} · {nxt['bytes']} B"}
+    taken = [d for d in downlinks if d["delivered_s"] is not None]
+    last = max(taken, key=lambda d: d["delivered_s"], default=None)
+    if last and now_s - last["delivered_s"] <= BANNER_DELIVERED_S:
+        return {"state": "delivered", "key": f"d{last['id']}",
+                "title": "Paquete entregado a la estación",
+                "detail": "recibido en su ventana de recepción",
+                "meta": f"{last['kind']} · {last['bytes']} B"}
+    with_ta = [d for d in taken if d.get("ta")]
+    window = max(with_ta, key=lambda d: d["delivered_s"], default=None)
+    if window:
+        # Strictly later: the uplink that fetched the window predates the inference.
+        first = next((u for u in reversed(uplinks)
+                      if u.get("hs30_min") is not None
+                      and u["ts_s"] > window["delivered_s"]), None)
+        if first and now_s - first["ts_s"] <= BANNER_RESULT_S:
+            return {"state": "result", "key": f"u{first['id']}",
+                    "title": "La estación ha ejecutado el modelo · HS30 mínimo previsto "
+                             + _es_num(first["hs30_min"]),
+                    "detail": "pronóstico a 24 h calculado a bordo con la hora y la "
+                              "temperatura recibidas",
+                    "meta": f"forecast · {first['bytes']} B"}
+    return None
+
+
+def _live(svc: Services, st: Station, now_s: int) -> dict:
+    """Everything the live card and the in-flight banner draw (also live.json)."""
+    link_mode = current_app.config["SETTINGS"].link_mode
+    outbox = svc.link_outbox
+    deliveries = outbox.deliveries(st.dev_eui, LIVE_DOWNLINKS * 2) if outbox else {}
+    uplinks = [_live_uplink(u) for u in svc.panel.uplinks(st.dev_eui, LIVE_UPLINKS)]
+    downlinks = [_live_downlink(d, deliveries)
+                 for d in svc.panel.downlinks(st.dev_eui, LIVE_DOWNLINKS)]
+    return {
+        "now_s": now_s,
+        "link_mode": link_mode,
+        "pending": outbox.pending(st.dev_eui) if outbox else 0,
+        "uplinks": uplinks,
+        "downlinks": downlinks,
+        "forecast": _live_forecast(svc, st.dev_eui, uplinks),
+        "station": {"last_uplink_at": st.last_uplink_at, "mode": st.mode,
+                    "utc_offset_min": st.utc_offset_min},
+        # Over TTN a delivery is never observed, so the banner only exists on the link.
+        "banner": _banner(uplinks, downlinks, now_s) if link_mode == "http" else None,
+    }
+
+
+def _timeline(live: dict) -> list[dict]:
+    """Uplinks and downlinks interleaved, newest first. A delivered downlink sorts by
+    its delivery time and, on a tie, above the uplink it answered."""
+    rows = [{"dir": "up", "key": f"u{u['id']}", "at_s": u["ts_s"], **u}
+            for u in live["uplinks"]]
+    rows += [{"dir": "down", "key": f"d{d['id']}", "at_s": d["delivered_s"] or d["ts_s"], **d}
+             for d in live["downlinks"]]
+    rows.sort(key=lambda r: (r["at_s"], r["dir"] == "down", r["id"] or 0), reverse=True)
+    return rows
 
 
 # --- auth --------------------------------------------------------------------
@@ -277,9 +461,12 @@ def station(dev_eui: str):
     tab = tab if tab in STATION_TABS else STATION_TABS[0]
     st = svc.panel.station(dev_eui)
     ups = svc.panel.uplinks(dev_eui)
+    live = _live(svc, st, int(time.time()))
     return render_template(
         "station.html",
         st=st,
+        live=live,
+        timeline=_timeline(live),
         station_local_now=_fmt_dt(int(time.time()), st.utc_offset_min),
         timezones=TIMEZONES,
         uplinks=[(u, _summary(u.u_type, u.payload_hex)) for u in ups],
@@ -289,6 +476,19 @@ def station(dev_eui: str):
         config_state=svc.panel.config_state(dev_eui),
         tab=tab,
     )
+
+
+@bp.get("/stations/<dev_eui>/live.json")
+def station_live(dev_eui: str):
+    """Polled by live.js: latest frames both ways + the in-flight banner."""
+    svc = _services()
+    try:
+        st = svc.panel.station(dev_eui)
+    except NotFound:
+        return jsonify(error="NotFound", message="unknown station"), 404
+    resp = jsonify(_live(svc, st, int(time.time())))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @bp.post("/stations/<dev_eui>/timezone")

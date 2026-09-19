@@ -5,6 +5,43 @@
      href="{{ url_for('web.station', dev_eui=st.dev_eui, tab=slug) }}"
      {{ 'aria-current=page' if tab == slug }}>{{ label }}</a>
 {% endmacro %}
+{# One frame of the live timeline. live.js builds the same markup for new rows. #}
+{% macro frame_row(r) %}
+  <li class="tl-row tl-{{ r.dir }}" data-key="{{ r.key }}">
+    <span class="tl-glyph" aria-hidden="true">{{ '↑' if r.dir == 'up' else '↓' }}</span>
+    <div class="tl-body">
+      <div class="tl-head">
+        <span class="tl-route">{{ 'estación → nube' if r.dir == 'up' else 'nube → estación' }}</span>
+        <span class="chip chip-{{ r.type if r.dir == 'up' else r.kind }}">{{ r.type if r.dir == 'up' else r.kind }}</span>
+        <span class="tl-bytes">{{ r.bytes }} B</span>
+        {% if r.dir == 'down' %}<span class="chip st-{{ r.state }} tl-state">{{ r.label }}</span>{% endif %}
+        <time class="tl-time" data-ts="{{ r.at_s }}">{{ r.at_s | clock(st.utc_offset_min) }}</time>
+      </div>
+      <div class="tl-summary">{{ r.summary }}</div>
+      {% if r.ta %}
+        {% set span = (r.ta.max - r.ta.min) or 1 %}
+        <div class="ta-strip">
+          <div class="ta-bars" role="img"
+               aria-label="Temperatura del aire: {{ r.ta.past|length }} h anteriores y {{ r.ta.future|length }} h de previsión, de {{ r.ta.min }} a {{ r.ta.max }} °C">
+            <div class="ta-seg ta-past" style="flex: {{ r.ta.past|length }}">
+              {% for v in r.ta.past %}<i style="height: {{ ((v - r.ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
+            </div>
+            <div class="ta-seg ta-future" style="flex: {{ r.ta.future|length }}">
+              {% for v in r.ta.future %}<i style="height: {{ ((v - r.ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
+            </div>
+          </div>
+          <div class="ta-axis">
+            <span style="flex: {{ r.ta.past|length }}">{{ r.ta.past|length }} h anteriores</span>
+            <span style="flex: {{ r.ta.future|length }}">{{ r.ta.future|length }} h de previsión</span>
+          </div>
+          <div class="ta-cap">Temperatura del aire · Open-Meteo
+            <span class="ta-range">mín {{ r.ta.min }} °C · máx {{ r.ta.max }} °C</span></div>
+        </div>
+      {% endif %}
+      <div class="tl-hex mono" title="{{ r.payload_hex }}">{{ r.payload_hex | hex_bytes }}</div>
+    </div>
+  </li>
+{% endmacro %}
 {% block content %}
 <div class="page-head">
   <h1>{{ st.name or st.dev_eui }}</h1>
@@ -26,6 +63,27 @@
   {{ tab_link('actividad', 'Actividad LoRa') }}
   {{ tab_link('ajustes', 'Configuración') }}
 </nav>
+
+{# In-flight notice: server-rendered from the DB, then kept current by live.js. #}
+<div id="linkbar-wrap" class="linkbar-wrap {{ 'is-open' if live.banner }}"
+     data-live-url="{{ url_for('web.station_live', dev_eui=st.dev_eui) }}">
+  <div class="linkbar-clip">
+    <div id="linkbar" class="linkbar is-{{ live.banner.state if live.banner else 'idle' }}"
+         role="status" aria-live="polite">
+      <span class="lb-icon" aria-hidden="true"><i></i></span>
+      <div class="lb-text">
+        <strong class="lb-title">{{ live.banner.title if live.banner }}</strong>
+        <span class="lb-detail">{{ live.banner.detail if live.banner }}</span>
+      </div>
+      <div class="lb-side">
+        <span class="lb-meta mono">{{ live.banner.meta if live.banner }}</span>
+        <div class="lb-track" aria-hidden="true">
+          <span>nube</span><span class="lb-line"><i></i></span><span>estación</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% if config_state and config_state.state in ('scheduled', 'delivered', 'failed') %}
 <div class="notice notice-{{ 'error' if config_state.state == 'failed' else 'warn' }}">
@@ -49,12 +107,33 @@
 {% endif %}
 
 {% if tab == 'resumen' %}
+<section class="card live-card">
+  <div class="card-head">
+    <h2>Comunicación en vivo</h2>
+    <div class="live-status" id="live-status" hidden>
+      <span class="live-dot" aria-hidden="true"></span><span id="live-label">en directo</span>
+    </div>
+  </div>
+  <div class="live-legend">
+    <span><b class="tl-glyph up" aria-hidden="true">↑</b> estación → nube</span>
+    <span><b class="tl-glyph down" aria-hidden="true">↓</b> nube → estación</span>
+    <span class="chip st-scheduled" id="live-pending" {{ 'hidden' if not live.pending }}>{{ live.pending }} en cola</span>
+  </div>
+  <ol class="timeline" id="timeline">
+    {% for r in timeline %}
+      {{ frame_row(r) }}
+    {% else %}
+      <li class="tl-empty muted">Todavía no hay tráfico: los paquetes aparecerán aquí en cuanto la estación transmita.</li>
+    {% endfor %}
+  </ol>
+</section>
+
 <div class="grid-2">
   <section class="card">
     <h2>Estado</h2>
     <dl>
       <div><dt>Modo</dt><dd>{{ st.mode }}</dd></div>
-      <div><dt>Último uplink</dt><dd>{{ st.last_uplink_at | dt(st.utc_offset_min) }}</dd></div>
+      <div><dt>Último uplink</dt><dd id="live-last-uplink">{{ st.last_uplink_at | dt(st.utc_offset_min) }}</dd></div>
       <div><dt>RSSI / SNR</dt>
         <dd>{% if st.last_rssi is not none %}{{ st.last_rssi }} dBm / {{ st.last_snr }} dB{% else %}—{% endif %}</dd></div>
       <div><dt>Posición</dt><dd>{{ '%.5f'|format(st.lat) }}, {{ '%.5f'|format(st.lon) }}</dd></div>
@@ -83,8 +162,16 @@
         {% endfor %}
       </div>
       <p class="muted small">VWC 0–1 · barras = próximas 24 h</p>
-    {% else %}
-      <p class="muted">Aún no hay ninguna inferencia almacenada.</p>
+    {% endif %}
+    {% set onboard = live.forecast if live.forecast and live.forecast.source == 'station' else none %}
+    <div class="onboard" id="live-onboard" {{ 'hidden' if not onboard }}>
+      <span class="onboard-value" id="live-onboard-value">{{ onboard.hs30_min | es_num if onboard }}</span>
+      <span class="onboard-label">HS30 mínimo previsto a 24 h<br>
+        <span class="muted small">calculado a bordo por la estación · recibido
+          <span id="live-onboard-at">{{ onboard.run_ts_s | dt(st.utc_offset_min) if onboard }}</span></span></span>
+    </div>
+    {% if not forecast %}
+      <p class="muted" id="live-no-forecast" {{ 'hidden' if onboard }}>Aún no hay ninguna inferencia almacenada.</p>
     {% endif %}
   </section>
 </div>
@@ -217,4 +304,5 @@
   </form>
 </section>
 {% endif %}
+<script src="{{ url_for('web.static', filename='live.js') }}" defer></script>
 {% endblock %}
