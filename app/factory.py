@@ -12,11 +12,13 @@ from config import Settings
 
 from .adapters.dataset.forecast import DatasetForecast
 from .adapters.inference.lstm import LstmInference
+from .adapters.link.http_queue import HttpLinkGateway
 from .adapters.openmeteo.client import OpenMeteoForecast
 from .adapters.repository.db import make_sessionmaker
 from .adapters.repository.sql import (
     SqlDownlinkLogRepository,
     SqlForecastRepository,
+    SqlLinkOutboxRepository,
     SqlReadingRepository,
     SqlSessionRepository,
     SqlStationRepository,
@@ -30,6 +32,7 @@ from .application.services import (
     ConfigDownlinkService,
     DailyCronService,
     IngestUplinkService,
+    LinkUplinkService,
     PanelService,
     RunCloudInferenceService,
     ScheduleDownlinkService,
@@ -43,11 +46,14 @@ from .interfaces.web.routes import bp as web_bp
 # Operator account of the web panel.
 ADMIN_USER = "admin"
 
+LINK_MODES = ("ttn", "http")
 FORECAST_SOURCES = ("openmeteo", "dataset")
 
 
 def create_app(settings: Settings | None = None) -> Flask:
     settings = settings or Settings.from_env()
+    if settings.link_mode not in LINK_MODES:
+        raise ValueError(f"LINK_MODE must be one of {', '.join(LINK_MODES)}")
     if settings.forecast_source not in FORECAST_SOURCES:
         raise ValueError(f"FORECAST_SOURCE must be one of {', '.join(FORECAST_SOURCES)}")
     app = Flask(__name__)
@@ -67,22 +73,25 @@ def create_app(settings: Settings | None = None) -> Flask:
     dl_log = SqlDownlinkLogRepository(sm)
     ul_log = SqlUplinkLogRepository(sm)
 
-    # Outbound adapters.
-    ttn = TtnHttpClient(settings)
+    # Outbound adapters. The station link is TTN, or the HTTP tunnel whose downlinks
+    # wait in an outbox for the station's next uplink (same TtnPort either way).
+    link_outbox = SqlLinkOutboxRepository(sm) if settings.link_mode == "http" else None
+    ttn = HttpLinkGateway(link_outbox) if link_outbox else TtnHttpClient(settings)
     forecast_src = (DatasetForecast(settings.replay_utc_offset_min)
                     if settings.forecast_source == "dataset"
                     else OpenMeteoForecast(settings))
     infer = LstmInference(settings.model_path)
 
     run_inference = RunCloudInferenceService(readings, forecasts, forecast_src, infer, ttn, dl_log)
+    ingest_uplink = IngestUplinkService(stations, readings, ul_log,
+                                        settings.default_lat, settings.default_lon,
+                                        ttn=ttn, downlinks=dl_log)
     app.config["SERVICES"] = Services(
         auth=AuthService(users, sessions, generate_password_hash,
                          lambda h, p: check_password_hash(h, p),
                          allow_registration=settings.allow_registration),
         stations=StationService(stations),
-        ingest_uplink=IngestUplinkService(stations, readings, ul_log,
-                                          settings.default_lat, settings.default_lon,
-                                          ttn=ttn, downlinks=dl_log),
+        ingest_uplink=ingest_uplink,
         signal_query=SignalQueryService(stations),
         schedule_downlink=ScheduleDownlinkService(stations, forecast_src, ttn, dl_log,
                                                   settings.default_lat, settings.default_lon),
@@ -91,6 +100,9 @@ def create_app(settings: Settings | None = None) -> Flask:
         daily_cron=DailyCronService(stations, run_inference, settings.daily_hour,
                                     forecasts=forecasts, log=app.logger.warning),
         panel=PanelService(stations, readings, forecasts, ul_log, dl_log, ttn),
+        link_uplink=(LinkUplinkService(ingest_uplink, stations, link_outbox, dl_log)
+                     if link_outbox else None),
+        link_outbox=link_outbox,
     )
 
     # Seed the operator; without ADMIN_PASSWORD it must change the default first.

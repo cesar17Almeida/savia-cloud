@@ -3,11 +3,13 @@ the dialect is a deployment detail of db.py). Each method opens a short session,
 commits, and maps rows back to plain domain dataclasses."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from ...domain.models import (
+    DL_DELIVERED,
     DL_QUEUED,
+    DownlinkCommand,
     DownlinkRecord,
     ForecastRun,
     Session,
@@ -19,6 +21,7 @@ from ...domain.models import (
 from ...domain.ports import (
     DownlinkLogRepository,
     ForecastRepository,
+    LinkOutboxRepository,
     ReadingRepository,
     SessionRepository,
     StationRepository,
@@ -210,7 +213,7 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
             if kind is not None:
                 q = q.where(orm.DownlinkLogRow.kind == kind)
             rows = s.scalars(q.order_by(orm.DownlinkLogRow.id.desc()).limit(limit)).all()
-            return [DownlinkRecord(r.dev_eui, r.ts_s, r.kind, r.payload_hex, r.status)
+            return [DownlinkRecord(r.dev_eui, r.ts_s, r.kind, r.payload_hex, r.status, r.id)
                     for r in rows]
 
     def confirm_oldest_queued(self, dev_eui: str, kind: str, status: str) -> bool:
@@ -219,6 +222,22 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
                 select(orm.DownlinkLogRow)
                 .where(orm.DownlinkLogRow.dev_eui == dev_eui,
                        orm.DownlinkLogRow.kind == kind,
+                       orm.DownlinkLogRow.status.in_((DL_QUEUED, DL_DELIVERED)))
+                .order_by(orm.DownlinkLogRow.id.asc())
+                .limit(1)
+            ).first()
+            if row is None:
+                return False
+            row.status = status
+            s.commit()
+            return True
+
+    def mark_delivered(self, dev_eui: str, payload_hex: str, status: str) -> bool:
+        with self._sm() as s:
+            row = s.scalars(
+                select(orm.DownlinkLogRow)
+                .where(orm.DownlinkLogRow.dev_eui == dev_eui,
+                       orm.DownlinkLogRow.payload_hex == payload_hex,
                        orm.DownlinkLogRow.status == DL_QUEUED)
                 .order_by(orm.DownlinkLogRow.id.asc())
                 .limit(1)
@@ -250,5 +269,54 @@ class SqlUplinkLogRepository(UplinkLogRepository):
                 .order_by(orm.UplinkLogRow.id.desc())
                 .limit(limit)
             ).all()
-            return [UplinkRecord(r.dev_eui, r.ts_s, r.u_type, r.payload_hex, r.rssi, r.snr)
+            return [UplinkRecord(r.dev_eui, r.ts_s, r.u_type, r.payload_hex, r.rssi, r.snr,
+                                 r.id)
                     for r in rows]
+
+
+class SqlLinkOutboxRepository(LinkOutboxRepository):
+    def __init__(self, sm: sessionmaker):
+        self._sm = sm
+
+    def add(self, dev_id: str, f_port: int, payload: bytes, now_s: int) -> None:
+        with self._sm() as s:
+            s.add(orm.LinkOutboxRow(dev_id=dev_id, f_port=f_port,
+                                    payload_hex=payload.hex(), created_s=now_s))
+            s.commit()
+
+    def take_next(self, dev_id: str, now_s: int) -> DownlinkCommand | None:
+        with self._sm() as s:
+            row = s.scalars(
+                select(orm.LinkOutboxRow)
+                .where(orm.LinkOutboxRow.dev_id == dev_id,
+                       orm.LinkOutboxRow.delivered_s.is_(None))
+                .order_by(orm.LinkOutboxRow.id.asc())
+                .limit(1)
+            ).first()
+            if row is None:
+                return None
+            row.delivered_s = now_s
+            s.commit()
+            return DownlinkCommand(dev_id=row.dev_id, f_port=row.f_port,
+                                   payload=bytes.fromhex(row.payload_hex))
+
+    def pending(self, dev_id: str) -> int:
+        with self._sm() as s:
+            return s.scalar(
+                select(func.count())
+                .select_from(orm.LinkOutboxRow)
+                .where(orm.LinkOutboxRow.dev_id == dev_id,
+                       orm.LinkOutboxRow.delivered_s.is_(None))
+            ) or 0
+
+    def deliveries(self, dev_id: str, limit: int) -> dict[str, int]:
+        with self._sm() as s:
+            rows = s.scalars(
+                select(orm.LinkOutboxRow)
+                .where(orm.LinkOutboxRow.dev_id == dev_id,
+                       orm.LinkOutboxRow.delivered_s.is_not(None))
+                .order_by(orm.LinkOutboxRow.id.desc())
+                .limit(limit)
+            ).all()
+            # Oldest first so the newest delivery of a repeated payload wins.
+            return {r.payload_hex: r.delivered_s for r in reversed(rows)}

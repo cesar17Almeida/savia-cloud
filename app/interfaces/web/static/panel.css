@@ -139,6 +139,7 @@ dd { margin: 0; text-align: right; }
 
 /* Downlink lifecycle */
 .st-scheduled { background: #faf1e4; color: #9a6b1f; border-color: transparent; }
+.st-delivered { background: #e9f2f7; color: #2f6d8c; border-color: transparent; }
 .st-applied   { background: var(--ok-bg); color: var(--accent); border-color: transparent; }
 .st-failed    { background: var(--err-bg); color: var(--error); border-color: transparent; }
 

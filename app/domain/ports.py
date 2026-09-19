@@ -135,9 +135,37 @@ class DownlinkLogRepository(ABC):
 
     @abstractmethod
     def confirm_oldest_queued(self, dev_eui: str, kind: str, status: str) -> bool:
-        """Close the OLDEST still-queued downlink of that kind: TTN drains its queue
-        FIFO, so a CFG_ACK answers the first config pushed, not the last. False when
-        nothing was waiting."""
+        """Close the OLDEST downlink of that kind still awaiting its answer (queued or
+        delivered): the queue drains FIFO, so a CFG_ACK answers the first config
+        pushed, not the last. False when nothing was waiting."""
+        ...
+
+    @abstractmethod
+    def mark_delivered(self, dev_eui: str, payload_hex: str, status: str) -> bool:
+        """Move the OLDEST queued downlink carrying that payload to `status`. False
+        when no queued row matches."""
+        ...
+
+
+class LinkOutboxRepository(ABC):
+    """Downlinks waiting for a station on the HTTP link (FIFO per device)."""
+
+    @abstractmethod
+    def add(self, dev_id: str, f_port: int, payload: bytes, now_s: int) -> None: ...
+
+    @abstractmethod
+    def take_next(self, dev_id: str, now_s: int) -> DownlinkCommand | None:
+        """Oldest undelivered downlink of that device, marked delivered; None if empty."""
+        ...
+
+    @abstractmethod
+    def pending(self, dev_id: str) -> int:
+        """How many downlinks still wait for that device."""
+        ...
+
+    @abstractmethod
+    def deliveries(self, dev_id: str, limit: int) -> dict[str, int]:
+        """payload_hex -> delivered_s of the latest delivered downlinks."""
         ...
 
 

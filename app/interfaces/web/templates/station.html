@@ -27,7 +27,7 @@
   {{ tab_link('ajustes', 'Configuración') }}
 </nav>
 
-{% if config_state and config_state.state in ('scheduled', 'failed') %}
+{% if config_state and config_state.state in ('scheduled', 'delivered', 'failed') %}
 <div class="notice notice-{{ 'error' if config_state.state == 'failed' else 'warn' }}">
   {% if config_state.state == 'failed' %}
     <strong>La configuración no salió del backend.</strong>
@@ -35,6 +35,10 @@
     estación <strong>no</strong> tiene estos valores. Vuelve a enviarlos desde
     «Configurar por LoRa» cuando esté resuelto.
     <div class="muted small">{{ config_state.detail | dl_detail }}</div>
+  {% elif config_state.state == 'delivered' %}
+    <strong>Configuración pendiente de confirmación.</strong>
+    Entregada a la estación en su ventana RX; hasta que responda con CFG_ACK, lo
+    guardado aquí puede no coincidir con lo que ejecuta el nodo.
   {% else %}
     <strong>Configuración pendiente de confirmación.</strong>
     Encolada en TTN el {{ config_state.ts_s | dt(st.utc_offset_min) }}. Viaja en la

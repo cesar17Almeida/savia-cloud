@@ -49,6 +49,11 @@ class Settings:
     # UTC offset (min) that anchors the dataset replay to a local hour of day. FIXED
     # and equal to the firmware's SAVIA_DEMO_UTC_OFFSET_MIN, never the station's own.
     replay_utc_offset_min: int = 120
+    # Station link: "ttn" (LoRaWAN through The Things Stack) or "http" (the phone
+    # tunnels the same wire-v2 frames: POST /link/uplink, downlinks from an outbox).
+    link_mode: str = "ttn"
+    # X-Link-Token expected on POST /link/uplink (empty = auth disabled).
+    link_secret: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -72,4 +77,6 @@ class Settings:
             forecast_source=os.getenv("FORECAST_SOURCE", cls.forecast_source).strip().lower(),
             replay_utc_offset_min=int(os.getenv("REPLAY_UTC_OFFSET_MIN",
                                                 cls.replay_utc_offset_min)),
+            link_mode=os.getenv("LINK_MODE", cls.link_mode).strip().lower(),
+            link_secret=os.getenv("LINK_SECRET", ""),
         )

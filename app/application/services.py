@@ -9,6 +9,7 @@ from typing import Callable
 from ..adapters.ttn import codec
 from ..domain.models import (
     DL_APPLIED,
+    DL_DELIVERED,
     DL_FAILED,
     DL_QUEUED,
     DownlinkCommand,
@@ -26,6 +27,7 @@ from ..domain.ports import (
     ForecastPort,
     ForecastRepository,
     InferencePort,
+    LinkOutboxRepository,
     ReadingRepository,
     SessionRepository,
     StationRepository,
@@ -358,6 +360,60 @@ class IngestUplinkService:
         self._downlinks.add(dev_eui, at_s, "time_ta", payload.hex(), status)
 
 
+# The station keeps its RX window open for 8 s; the same frame again inside this
+# span is the phone retrying a POST whose answer got lost, not a new uplink.
+LINK_RETRY_WINDOW_S = 10
+UTC_OFFSET_MIN_RANGE = (-720, 840)
+
+
+class LinkUplinkService:
+    """HTTP link (LINK_MODE=http): ingest one tunnelled uplink and hand back the
+    oldest queued downlink. Class-A semantics: at most one downlink, and only as the
+    answer to an uplink."""
+
+    def __init__(
+        self,
+        ingest: IngestUplinkService,
+        stations: StationRepository,
+        outbox: LinkOutboxRepository,
+        downlinks: DownlinkLogRepository,
+    ):
+        self._ingest = ingest
+        self._stations = stations
+        self._outbox = outbox
+        self._downlinks = downlinks
+        # dev_id -> (seq, raw_hex, at_s, answer) of the last uplink handled.
+        self._last: dict[str, tuple] = {}
+
+    def handle(self, dev_id: str, decoded: dict, at_s: int, raw_hex: str = "",
+               seq: int | None = None,
+               utc_offset_min: int | None = None) -> DownlinkCommand | None:
+        last = self._last.get(dev_id)
+        if (seq is not None and last is not None and last[:2] == (seq, raw_hex)
+                and 0 <= at_s - last[2] <= LINK_RETRY_WINDOW_S):
+            return last[3]   # retry: same answer, nothing ingested twice
+
+        self._ingest.handle(dev_id, decoded, None, None, at_s, raw_hex=raw_hex)
+        if utc_offset_min is not None:
+            self._store_offset(dev_id, utc_offset_min)
+
+        cmd = self._outbox.take_next(dev_id, at_s)
+        if cmd is not None:
+            self._downlinks.mark_delivered(dev_id, cmd.payload.hex(), DL_DELIVERED)
+        self._last[dev_id] = (seq, raw_hex, at_s, cmd)
+        return cmd
+
+    def _store_offset(self, dev_id: str, utc_offset_min: int) -> None:
+        """Mirror the station's UTC offset, exactly as a COORDS uplink would."""
+        lo, hi = UTC_OFFSET_MIN_RANGE
+        st = self._stations.get(dev_id)
+        if st is None or not lo <= utc_offset_min <= hi:
+            return
+        if st.utc_offset_min != utc_offset_min:
+            st.utc_offset_min = utc_offset_min
+            self._stations.save(st)
+
+
 class SignalQueryService:
     """Read the last known uplink signal (RSSI/SNR from the TTN gateway)."""
 
@@ -625,3 +681,6 @@ class Services:
     run_inference: RunCloudInferenceService
     daily_cron: DailyCronService
     panel: PanelService
+    # HTTP link only (LINK_MODE=http); None when the stations talk through TTN.
+    link_uplink: LinkUplinkService | None = None
+    link_outbox: LinkOutboxRepository | None = None

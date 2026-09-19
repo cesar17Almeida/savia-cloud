@@ -78,6 +78,9 @@ class _Log(DownlinkLogRepository):
     def confirm_oldest_queued(self, dev_eui, kind, status):  # unused here
         return False
 
+    def mark_delivered(self, dev_eui, payload_hex, status):  # unused here
+        return False
+
 
 def test_forward_inference_runs_and_schedules_downlink():
     forecasts, ttn, log = _Forecasts(), _Ttn(), _Log()

@@ -71,12 +71,14 @@ class UplinkRecord:
     payload_hex: str
     rssi: int | None
     snr: float | None
+    id: int | None = None      # log row id (None until stored)
 
 
 # downlink_log.status lifecycle. A config only reaches the node in its next RX
 # window, so "queued at TTN" and "applied by the node" are different facts and the
 # panel must never conflate them. Kept as the literal already in the DB.
 DL_QUEUED = "scheduled"    # accepted by the TTN queue, not yet heard by the node
+DL_DELIVERED = "delivered"  # handed to the station in its RX window (HTTP link only)
 DL_APPLIED = "applied"     # the node answered with CFG_ACK
 DL_FAILED = "failed"       # the push to TTN itself failed; nothing left the cloud
 
@@ -89,10 +91,11 @@ class DownlinkRecord:
     kind: str
     payload_hex: str
     status: str
+    id: int | None = None      # log row id (None until stored)
 
     @property
     def state(self) -> str:
-        """First token of status: DL_QUEUED / DL_APPLIED / DL_FAILED."""
+        """First token of status: DL_QUEUED / DL_DELIVERED / DL_APPLIED / DL_FAILED."""
         return self.status.split(":", 1)[0].strip()
 
 

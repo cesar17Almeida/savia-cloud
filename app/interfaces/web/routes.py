@@ -27,7 +27,7 @@ from werkzeug.exceptions import HTTPException
 from ...adapters.ttn import codec
 from ...application.errors import AppError, InsufficientData, StationClaimed, Unauthorized
 from ...application.services import DEFAULT_ADMIN_PASSWORD, Services
-from ...domain.models import DL_APPLIED, DL_FAILED, DL_QUEUED
+from ...domain.models import DL_APPLIED, DL_DELIVERED, DL_FAILED, DL_QUEUED
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -99,7 +99,8 @@ def _gate():
 
 
 # Downlink lifecycle as shown in the panel.
-_DL_LABEL = {DL_QUEUED: "en cola", DL_APPLIED: "aplicada", DL_FAILED: "no enviada"}
+_DL_LABEL = {DL_QUEUED: "en cola", DL_DELIVERED: "entregado a la estación",
+             DL_APPLIED: "aplicada", DL_FAILED: "no enviada"}
 
 
 @bp.app_template_filter("dl_state")

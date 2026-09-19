@@ -75,3 +75,14 @@ class UplinkLogRow(Base):
     payload_hex: Mapped[str] = mapped_column(String)
     rssi: Mapped[int | None] = mapped_column(nullable=True)
     snr: Mapped[float | None] = mapped_column(nullable=True)
+
+
+class LinkOutboxRow(Base):
+    """Downlinks waiting for a station on the HTTP link (LINK_MODE=http)."""
+    __tablename__ = "link_outbox"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    dev_id: Mapped[str] = mapped_column(String, index=True)
+    f_port: Mapped[int] = mapped_column()
+    payload_hex: Mapped[str] = mapped_column(String)
+    created_s: Mapped[int] = mapped_column()
+    delivered_s: Mapped[int | None] = mapped_column(nullable=True)

@@ -7,6 +7,7 @@ a single error handler.
 from __future__ import annotations
 
 import base64
+import binascii
 import functools
 import hmac
 import time
@@ -57,6 +58,21 @@ def _json_body() -> dict:
     if not isinstance(body, dict):
         raise InvalidInput("the request body must be a JSON object")
     return body
+
+
+def _decode_frame(raw: bytes) -> dict:
+    """Decode an uplink frame; an undecodable one is still logged, as type "unknown"."""
+    try:
+        return codec.decode_uplink(raw)
+    except ValueError:
+        return {"type": "unknown"}
+
+
+def _token_ok(header: str, secret: str) -> bool:
+    """Constant-time shared-secret check; an empty secret disables it."""
+    if not secret:
+        return True
+    return hmac.compare_digest(request.headers.get(header, "").encode(), secret.encode())
 
 
 def _limit_arg(default: int) -> int:
@@ -214,19 +230,14 @@ def station_config(dev_eui: str):
 def ttn_uplink():
     """TTN webhook. Verify the shared secret, decode the payload, and persist the
     reading + the gateway RSSI/SNR (the uplink signal the station cannot measure)."""
-    secret = _settings().webhook_secret
-    if secret and not hmac.compare_digest(request.headers.get("X-Webhook-Token", ""), secret):
+    if not _token_ok("X-Webhook-Token", _settings().webhook_secret):
         return jsonify(error="Unauthorized", message="bad webhook token"), 401
 
     body = _json_body()
     dev_eui = body.get("end_device_ids", {}).get("device_id", "unknown")
     um = body.get("uplink_message", {}) or {}
     raw = base64.b64decode(um["frm_payload"]) if um.get("frm_payload") else b""
-
-    try:
-        decoded = codec.decode_uplink(raw)
-    except ValueError:
-        decoded = {"type": "unknown"}
+    decoded = _decode_frame(raw)
 
     rssi = snr = None
     mds = um.get("rx_metadata") or []
@@ -239,14 +250,56 @@ def ttn_uplink():
     return jsonify(ok=True, type=decoded.get("type"))
 
 
+# --- HTTP link ---------------------------------------------------------------
+
+def _int_or_none(value) -> int | None:
+    """A JSON integer, or None for anything else (bool included)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@bp.post("/link/uplink")
+def link_uplink():
+    """HTTP link (LINK_MODE=http): the phone tunnels one station uplink -- the same
+    wire-v2 bytes LoRa would carry -- and takes back at most one queued downlink."""
+    link = _services().link_uplink
+    if _settings().link_mode != "http" or link is None:
+        return jsonify(error="NotFound", message="the HTTP link is not enabled"), 404
+    if not _token_ok("X-Link-Token", _settings().link_secret):
+        return jsonify(error="Unauthorized", message="bad link token"), 401
+
+    body = _json_body()
+    dev_id = body.get("device_id")
+    if not isinstance(dev_id, str) or not dev_id.strip():
+        return jsonify(error="BadRequest", message="device_id required"), 400
+    payload_b64 = body.get("frm_payload")
+    if not isinstance(payload_b64, str):
+        return jsonify(error="BadRequest", message="frm_payload (base64) required"), 400
+    try:
+        raw = base64.b64decode(payload_b64, validate=True)
+    except (binascii.Error, ValueError):
+        return jsonify(error="BadRequest", message="frm_payload is not valid base64"), 400
+
+    decoded = _decode_frame(raw)
+    cmd = link.handle(dev_id.strip(), decoded, int(time.time()), raw_hex=raw.hex(),
+                      seq=_int_or_none(body.get("seq")),
+                      utc_offset_min=_int_or_none(body.get("utc_offset_min")))
+    downlink = None
+    if cmd is not None:
+        downlink = {
+            "f_port": cmd.f_port,
+            "frm_payload": base64.b64encode(cmd.payload).decode(),
+            "kind": codec.downlink_kind(cmd.payload),
+        }
+    return jsonify(ok=True, type=decoded.get("type"), downlink=downlink)
+
+
 # --- cron --------------------------------------------------------------------
 
 @bp.post("/cron/daily")
 def cron_daily():
     """External scheduler entrypoint (hourly). Runs FORWARD inference for the
     stations at their local daily hour. Protected by the X-Cron-Token secret."""
-    secret = _settings().cron_secret
-    if secret and not hmac.compare_digest(request.headers.get("X-Cron-Token", ""), secret):
+    if not _token_ok("X-Cron-Token", _settings().cron_secret):
         raise Unauthorized("bad cron token")
     force = bool(_json_body().get("force"))
     report = _services().daily_cron.run(int(time.time()), force=force)
