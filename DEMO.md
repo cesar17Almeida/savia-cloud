@@ -70,10 +70,25 @@ cruce las 10:00**, porque la ventana saltaría de la fila 81 a la 58.
    muestra **«La estación ha ejecutado el modelo · HS30 mínimo previsto 0,742»** y el
    valor queda fijo en la tarjeta **Última inferencia**.
 
-Una estación que se da de alta sola figura en el backend como `forward`. Para que el
-panel la muestre como `local`, envía «Modo inferencia: local» desde **Configuración →
-Configurar por LoRa**: además se ve el ciclo completo de una configuración (*en cola* →
-*entregado a la estación* → *aplicada* al llegar el `CFG_ACK`).
+Una estación que se da de alta sola figura en el backend como `forward`. Por este
+enlace el panel sigue el modo que el instalador eligió en TerraLink: pasa a `local` con
+el primer `forecast` que trae un valor (solo una estación LOCAL infiere) y a `forward`
+con el primer `soil`. También se puede cambiar desde el panel con «Modo inferencia» en
+**Configuración → Configurar por LoRa**, y así se ve el ciclo completo de una
+configuración (*en cola* → *entregado a la estación* → *aplicada* al llegar el `CFG_ACK`).
+
+## Ensayo sin placa ni móvil
+
+`tools/rehearse_station.py` hace de estación **y** de pasarela: envía a `/link/uplink`
+las mismas tramas que el firmware (`BOOT`, `FORECAST` periódicos, `SOIL` con `--forward`),
+imprime cada downlink y reacciona como la placa (con el `TIME_TA` completo «infiere» y
+anuncia el HS30 mínimo; a un `CONFIG` contesta con `CFG_ACK`). Sirve para ensayar el
+panel y comprobar el backend antes de grabar:
+
+```sh
+make demo                                  # en una terminal
+.venv/bin/python tools/rehearse_station.py # en otra (solo biblioteca estándar)
+```
 
 ## Modo FORWARD (inferencia en la nube)
 

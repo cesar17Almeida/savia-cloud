@@ -178,3 +178,17 @@ def test_forward_flow_soil_uplinks_store_readings(link_client):
     rows = svc.panel.readings(DEV, 100)
     assert len(rows) == 8 and rows[0].ts_hour_s == latest and rows[0].hs10 == 0.8
     assert svc.panel.station(DEV).last_rssi is None           # no gateway on this link
+
+
+def test_the_station_mode_follows_what_the_node_sends(link_client):
+    svc = link_client.application.config["SERVICES"]
+    _up(link_client, BOOT)
+    assert svc.panel.station(DEV).mode == "forward"            # auto-enrolled default
+    _up(link_client, PING)                                     # a forecast with no value proves nothing
+    assert svc.panel.station(DEV).mode == "forward"
+    _up(link_client, bytes([codec.VERSION, codec.UP_FORECAST]) + struct.pack(">H", 742))
+    assert svc.panel.station(DEV).mode == "local"              # only a LOCAL node infers
+    latest = int(time.time()) // HOUR * HOUR
+    soil = bytes([codec.VERSION, codec.UP_SOIL, 1]) + struct.pack(">IHHh", latest, 800, 780, 245)
+    _up(link_client, soil)
+    assert svc.panel.station(DEV).mode == "forward"            # only a FORWARD node uplinks soil

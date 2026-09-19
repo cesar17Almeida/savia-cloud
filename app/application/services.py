@@ -396,12 +396,27 @@ class LinkUplinkService:
         self._ingest.handle(dev_id, decoded, None, None, at_s, raw_hex=raw_hex)
         if utc_offset_min is not None:
             self._store_offset(dev_id, utc_offset_min)
+        self._mirror_mode(dev_id, decoded)
 
         cmd = self._outbox.take_next(dev_id, at_s)
         if cmd is not None:
             self._downlinks.mark_delivered(dev_id, cmd.payload.hex(), DL_DELIVERED)
         self._last[dev_id] = (seq, raw_hex, at_s, cmd)
         return cmd
+
+    def _mirror_mode(self, dev_id: str, decoded: dict) -> None:
+        """Follow the mode the installer set over BLE: only a LOCAL node reports a
+        forecast value, only a FORWARD node uplinks soil records."""
+        if decoded.get("type") == "soil":
+            mode = "forward"
+        elif decoded.get("type") == "forecast" and decoded.get("hs30_min") is not None:
+            mode = "local"
+        else:
+            return
+        st = self._stations.get(dev_id)
+        if st is not None and st.mode != mode:
+            st.mode = mode
+            self._stations.save(st)
 
     def _store_offset(self, dev_id: str, utc_offset_min: int) -> None:
         """Mirror the station's UTC offset, exactly as a COORDS uplink would."""
