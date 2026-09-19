@@ -14,7 +14,9 @@ app/
   application/     Casos de uso (services.py) + errores mapeables (errors.py).
   adapters/        Adaptadores dirigidos (implementan puertos):
     ttn/           codec.py (payload wire v2, = firmware) + client.py (downlink AS API)
+    link/          http_queue.py (mismo puerto que TTN; downlinks en una cola en BD, LINK_MODE=http)
     openmeteo/     client.py (pronóstico TA horario)
+    dataset/       forecast.py (TA del conjunto de entrenamiento, FORECAST_SOURCE=dataset)
     inference/     lstm.py (mismo modelo int8 que embebe el firmware)
     repository/    orm.py + db.py + sql.py (SQLAlchemy sobre PostgreSQL) ; memory.py (tests sin BD)
   interfaces/http/ Adaptador conductor: rutas Flask (routes.py)
@@ -56,6 +58,7 @@ el test de inferencia se salta limpio (`skipif`).
 | POST | `/stations/<dev_eui>/downlink` | Bearer (owner) | Programa el downlink hora + TA. |
 | POST | `/stations/<dev_eui>/config` | Bearer (owner) | Programa un parche de config (TLV). |
 | POST | `/ttn/uplink` | `X-Webhook-Token` | Webhook de TTN: decodifica + persiste. |
+| POST | `/link/uplink` | `X-Link-Token` | Solo con `LINK_MODE=http`: uplink por el túnel del móvil; responde con el downlink en cola (ver `DEMO.md`). |
 | POST | `/cron/daily` | `X-Cron-Token` | Corre la inferencia diaria (ver abajo). |
 
 Los errores de la API son siempre JSON `{error, message}`: 400 para datos mal
@@ -134,7 +137,8 @@ memoria por defecto; con `TEST_DATABASE_URL=postgresql+psycopg://...` la suite c
 corre contra un PostgreSQL real (esquema recreado en cada test). Las tablas se crean al
 arrancar (`create_all`) — suficiente para el alcance del TFM; una migración formal
 (Alembic) queda fuera de alcance. Tablas: `users`, `sessions`, `stations`,
-`soil_readings` (PK compuesta, *upsert*), `forecasts`, `uplink_log`, `downlink_log`.
+`soil_readings` (PK compuesta, *upsert*), `forecasts`, `uplink_log`, `downlink_log`,
+`link_outbox` (solo se usa con `LINK_MODE=http`).
 
 Migrar un despliegue anterior en SQLite: `tools/migrate_sqlite_to_postgres.py --sqlite
 <fichero.db> --pg <URL>` copia todas las tablas y reajusta las secuencias.

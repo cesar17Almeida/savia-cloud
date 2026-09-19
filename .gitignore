@@ -12,6 +12,7 @@ env/
 
 # env / secrets
 .env
+.env.demo
 
 # local SQLite database
 *.db
