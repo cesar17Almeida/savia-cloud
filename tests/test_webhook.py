@@ -4,7 +4,7 @@ import base64
 from app.adapters.repository.memory import InMemoryStationRepository
 from app.adapters.ttn import codec
 from app.application.services import IngestUplinkService
-from app.domain.ports import ReadingRepository
+from app.domain.ports import ReadingRepository, UplinkLogRepository
 from tests.conftest import WEBHOOK_SECRET
 
 SOIL_FRAME = bytes.fromhex(
@@ -13,6 +13,8 @@ SOIL_FRAME = bytes.fromhex(
 )
 COORDS_FRAME = bytes.fromhex("02 03 17 86 A3 E6 FF C6 95 3F 00 78".replace(" ", ""))
 BOOT_FRAME = bytes.fromhex("02 06 6A 45 01 40".replace(" ", ""))
+PING_FRAME = bytes([codec.VERSION, codec.UP_FORECAST, 0xFF, 0xFF])   # forecast, no value
+FORECAST_FRAME = bytes([codec.VERSION, codec.UP_FORECAST, 0x02, 0xE6])   # hs30_min 0.742
 
 
 def _ttn_body(dev="EUI-W", payload=SOIL_FRAME):
@@ -68,6 +70,38 @@ def test_ingest_service_upserts_soil_records():
     assert readings.rows[1].hs10 is None and readings.rows[1].hs30 == 0.741
     st = stations.get("EUI-Z")
     assert st.last_rssi == -80 and st.last_snr == 8.0 and st.last_uplink_at == 1782000000
+
+
+class _FakeUplinks(UplinkLogRepository):
+    def __init__(self):
+        self.rows = []
+
+    def add(self, record):
+        self.rows.append(record)
+
+    def list_recent(self, dev_eui, limit):
+        return list(reversed(self.rows))[:limit]
+
+
+def test_confirmed_valueless_forecast_is_logged_as_a_ping():
+    """The app's coverage ping is the only CONFIRMED frame the station sends; the
+    log names it apart so the panel shows it for what it is."""
+    uplinks = _FakeUplinks()
+    svc = IngestUplinkService(InMemoryStationRepository(), _FakeReadings(), uplinks)
+    decoded = codec.decode_uplink(PING_FRAME)
+
+    svc.handle("EUI-P", decoded, -95, 5.0, 1782000000, raw_hex=PING_FRAME.hex(),
+               confirmed=True)
+    assert uplinks.rows[-1].u_type == "ping"
+
+    # Same frame unconfirmed: the periodic keep-alive, logged as what it is.
+    svc.handle("EUI-P", decoded, -95, 5.0, 1782000060, raw_hex=PING_FRAME.hex())
+    assert uplinks.rows[-1].u_type == "forecast"
+
+    # A confirmed frame that DOES carry a forecast is a forecast, not a ping.
+    svc.handle("EUI-P", codec.decode_uplink(FORECAST_FRAME), -95, 5.0, 1782000120,
+               raw_hex=FORECAST_FRAME.hex(), confirmed=True)
+    assert uplinks.rows[-1].u_type == "forecast"
 
 
 def test_ingest_service_updates_coords():

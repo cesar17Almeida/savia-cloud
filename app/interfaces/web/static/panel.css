@@ -170,6 +170,7 @@ td .chip { font-size: 0.75em; }
 .chip-config   { background: #faf1e4; color: #9a6b1f; border-color: transparent; }
 .chip-time_ta  { background: #e9f2f7; color: #2f6d8c; border-color: transparent; }
 .chip-boot     { background: #f3efe6; color: #7a6a3a; border-color: transparent; }
+.chip-ping     { background: #e6f4f1; color: #1f7a6b; border-color: transparent; }
 .chip-unknown  { background: #fbeae8; color: #b3372f; border-color: transparent; }
 
 /* Layout helpers */

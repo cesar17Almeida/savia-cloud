@@ -173,6 +173,8 @@ def _summary(u_type: str, payload_hex: str) -> str:
         d = codec.decode_uplink(bytes.fromhex(payload_hex))
     except (ValueError, TypeError):
         return "no decodificable"
+    if u_type == "ping":
+        return "ping de cobertura pedido desde la app (confirmado)"
     if u_type == "forecast":
         v = d.get("hs30_min")
         return "petición de ventana RX" if v is None else f"HS30 mín {v:.3f}"

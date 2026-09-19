@@ -245,8 +245,11 @@ def ttn_uplink():
         best = max(mds, key=lambda m: m.get("rssi", -9999))
         rssi, snr = best.get("rssi"), best.get("snr")
 
+    # TTN flags a confirmed uplink; the station only asks for confirmation on the
+    # app's coverage ping, which is what lets the log name it apart.
     _services().ingest_uplink.handle(dev_eui, decoded, rssi, snr, int(time.time()),
-                                     raw_hex=raw.hex())
+                                     raw_hex=raw.hex(),
+                                     confirmed=bool(um.get("confirmed")))
     return jsonify(ok=True, type=decoded.get("type"))
 
 

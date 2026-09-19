@@ -277,6 +277,17 @@ class StationService:
 TIME_SYNC_GAP_S = 6 * 3600
 
 
+def _log_type(decoded: dict, confirmed: bool) -> str:
+    """Label for the raw log. A CONFIRMED forecast frame carrying no value is the
+    on-demand coverage ping the app triggers: the periodic cycle always sends
+    unconfirmed frames, so the confirmation bit is what tells the two apart. Only
+    the label changes -- everything downstream still treats it as a forecast."""
+    u_type = decoded.get("type", "unknown")
+    if confirmed and u_type == "forecast" and decoded.get("hs30_min") is None:
+        return "ping"
+    return u_type
+
+
 class IngestUplinkService:
     """Persist a decoded uplink: raw log + soil records + coords + link quality.
     Also keeps the station clock fresh: if no time_ta downlink went out in the
@@ -303,10 +314,10 @@ class IngestUplinkService:
         self._downlinks = downlinks
 
     def handle(self, dev_eui: str, decoded: dict, rssi, snr, at_s: int,
-               raw_hex: str = "") -> None:
+               raw_hex: str = "", confirmed: bool = False) -> None:
         if self._uplinks is not None:
             self._uplinks.add(UplinkRecord(
-                dev_eui=dev_eui, ts_s=at_s, u_type=decoded.get("type", "unknown"),
+                dev_eui=dev_eui, ts_s=at_s, u_type=_log_type(decoded, confirmed),
                 payload_hex=raw_hex, rssi=rssi, snr=snr,
             ))
         st = self._stations.get(dev_eui) or Station(
