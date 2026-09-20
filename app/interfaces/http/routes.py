@@ -285,7 +285,8 @@ def link_uplink():
     decoded = _decode_frame(raw)
     cmd = link.handle(dev_id.strip(), decoded, int(time.time()), raw_hex=raw.hex(),
                       seq=_int_or_none(body.get("seq")),
-                      utc_offset_min=_int_or_none(body.get("utc_offset_min")))
+                      utc_offset_min=_int_or_none(body.get("utc_offset_min")),
+                      confirmed=bool(body.get("confirmed")))
     downlink = None
     if cmd is not None:
         downlink = {

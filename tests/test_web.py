@@ -15,7 +15,11 @@ def _login(client, user="admin", password=ADMIN_PASSWORD):
 
 
 def _soil_frame(ts_hour_s: int, hs10=0.79, hs30=0.77, ta=24.0) -> bytes:
-    rec = struct.pack(">IHHh", ts_hour_s, int(hs10 * 1000), int(hs30 * 1000), int(ta * 10))
+    """One hourly record. None on any field sends the wire's missing-value sentinel."""
+    rec = struct.pack(">IHHh", ts_hour_s,
+                      0xFFFF if hs10 is None else int(hs10 * 1000),
+                      0xFFFF if hs30 is None else int(hs30 * 1000),
+                      0x7FFF if ta is None else int(ta * 10))
     return bytes([0x02, 0x02, 1]) + rec
 
 
@@ -318,3 +322,95 @@ def test_timezone_selector_sends_tlv(client, ttn_capture):
     assert len(_config_downlinks(ttn_capture)) == 1
     svc = client.application.config["SERVICES"]
     assert svc.panel.station("savia").utc_offset_min == -300  # Bogota, no DST
+
+
+# --- soil chart ---------------------------------------------------------------
+
+T0 = 1_782_000_000   # a whole hour, UTC
+
+
+def _lecturas(client, dev_eui="savia") -> str:
+    return client.get(f"/home/stations/{dev_eui}?tab=lecturas").get_data(as_text=True)
+
+
+def _chart(page: str) -> str:
+    """Just the chart SVG, so an assertion cannot be satisfied by the table below it."""
+    return page.split('class="soil-chart"')[1].split("</svg>")[0]
+
+
+def test_soil_chart_is_drawn_from_the_stored_readings(client):
+    """With readings the tab renders the inline SVG: both depths, the TA panel and
+    the newest value direct-labelled. No script tag -- the panel stays JS-free."""
+    for i in range(4):
+        _post_uplink(client, _soil_frame(T0 + i * 3600, hs10=0.40 + i / 100,
+                                         hs30=0.30, ta=21.0 + i))
+    _login(client)
+    page = _lecturas(client)
+
+    assert 'class="soil-chart"' in page
+    svg = _chart(page)
+    assert 'stroke="var(--viz-hs10)"' in svg and 'stroke="var(--viz-hs30)"' in svg
+    assert "Temperatura del aire, TA (°C)" in svg   # TA on its own panel, not a 2nd axis
+    assert "Humedad volumétrica del suelo (VWC)" in svg
+    assert ">0.430<" in svg and ">24.0<" in svg     # newest HS10 and TA, direct-labelled
+    assert "<script" not in svg                     # server-rendered, no JS anywhere
+    assert "<title>" in svg                         # hover readout, one band per hour
+
+
+def test_station_without_readings_keeps_the_empty_message(client):
+    """A station that never sent SOIL shows the same empty row as before, no chart."""
+    _post_uplink(client, bytes([0x02, 0x01, 0xFF, 0xFF]))   # a forecast uplink, no soil
+    _login(client)
+    page = _lecturas(client)
+
+    assert "Sin lecturas todavía" in page
+    assert "soil-chart" not in page
+
+
+def test_hour_labels_follow_the_station_timezone(client):
+    """Axis labels are the station's local hour, like every other time in the panel."""
+    _post_uplink(client, _soil_frame(T0))             # 21/06 00:00 UTC
+    _post_uplink(client, _soil_frame(T0 + 3600))
+    _login(client)
+    svc = client.application.config["SERVICES"]
+
+    svc.panel.update_station("savia", {"utc_offset_min": 0})
+    axis = _chart(_lecturas(client))
+    assert ">21/06 00:00<" in axis and ">01:00<" in axis
+
+    svc.panel.update_station("savia", {"utc_offset_min": 120})
+    axis = _chart(_lecturas(client))                  # same instant, UTC+2
+    assert ">21/06 02:00<" in axis and ">03:00<" in axis
+    assert ">21/06 00:00<" not in axis
+
+
+def test_a_missing_value_cuts_the_line_instead_of_bridging_it(client):
+    """A None never becomes a point: HS10 loses its middle hour and is drawn as two
+    polylines, while HS30 -- complete -- stays a single one."""
+    for i, hs10 in enumerate((0.40, None, 0.44)):
+        _post_uplink(client, _soil_frame(T0 + i * 3600, hs10=hs10, hs30=0.30))
+    _login(client)
+    page = _lecturas(client)
+
+    assert page.count('stroke="var(--viz-hs10)"') == 2
+    assert page.count('stroke="var(--viz-hs30)"') == 1
+
+
+def test_a_single_reading_still_renders(client):
+    """One row has no line to draw; it must still plot as a dot, not divide by zero."""
+    _post_uplink(client, _soil_frame(T0))
+    _login(client)
+    page = _lecturas(client)
+
+    assert 'class="soil-chart"' in page
+    assert 'class="viz-dot"' in page
+
+
+def test_readings_with_no_values_at_all_do_not_render_a_chart(client):
+    """Rows whose every field is a sentinel leave nothing to plot: table only."""
+    _post_uplink(client, _soil_frame(T0, hs10=None, hs30=None, ta=None))
+    _login(client)
+    page = _lecturas(client)
+
+    assert "soil-chart" not in page
+    assert "Lecturas de suelo almacenadas" in page     # the page itself still renders

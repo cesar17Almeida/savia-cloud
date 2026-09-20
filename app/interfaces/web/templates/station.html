@@ -189,6 +189,57 @@
 {% if tab == 'lecturas' %}
 <section class="card">
   <h2>Lecturas de suelo almacenadas</h2>
+  {# Server-rendered SVG: geometry comes from charts.build_soil_chart, this only draws.
+     HS10/HS30 share a panel; TA gets its own below -- two y-scales on one plot
+     would invent a correlation between soil water and air temperature. #}
+  {% if soil_chart %}
+    <div class="viz-legend">
+      {% for s in soil_chart.soil.series %}
+        <span><i class="viz-key" style="background: var({{ s.color }})"></i>{{ s.label }}</span>
+      {% endfor %}
+    </div>
+    <div class="chart-wrap">
+      <svg class="soil-chart" role="img" aria-label="{{ soil_chart.aria_label }}"
+           viewBox="0 0 {{ soil_chart.width }} {{ soil_chart.height }}">
+        {% for p in soil_chart.panels %}
+          <text class="viz-title" x="{{ soil_chart.left }}" y="{{ p.title_y }}">{{ p.title }}</text>
+          {% for t in p.y_ticks %}
+            <line class="viz-grid" x1="{{ soil_chart.left }}" y1="{{ t.pos }}"
+                  x2="{{ soil_chart.right }}" y2="{{ t.pos }}"></line>
+            <text class="viz-tick" x="{{ soil_chart.left - 10 }}" y="{{ t.pos + 4 }}"
+                  text-anchor="end">{{ t.label }}</text>
+          {% endfor %}
+          {% for s in p.series %}
+            {% for run in s.runs %}
+              <polyline class="viz-line" stroke="var({{ s.color }})" points="{{ run.attr }}"></polyline>
+            {% endfor %}
+            {% for d in s.dots %}
+              <circle class="viz-dot" cx="{{ d.x }}" cy="{{ d.y }}" r="4"
+                      fill="var({{ s.color }})"></circle>
+            {% endfor %}
+            {% if s.end %}
+              <text class="viz-end" x="{{ s.end.x }}" y="{{ s.end.y }}">{{ s.end.text }}</text>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+        {% for t in soil_chart.x_ticks %}
+          <line class="viz-grid" x1="{{ t.pos }}" y1="{{ soil_chart.band_bottom }}"
+                x2="{{ t.pos }}" y2="{{ soil_chart.band_bottom + 5 }}"></line>
+          <text class="viz-tick" x="{{ t.pos }}" y="{{ soil_chart.x_label_y }}"
+                text-anchor="middle">{{ t.label }}</text>
+        {% endfor %}
+        {# Hover readout, last so it sits on top: the browser's own SVG tooltip. #}
+        {% for b in soil_chart.bands %}
+          <rect class="viz-band" x="{{ b.x }}" y="{{ soil_chart.band_top }}"
+                width="{{ b.width }}" height="{{ soil_chart.band_bottom - soil_chart.band_top }}">
+            <title>{{ b.text }}</title>
+          </rect>
+        {% endfor %}
+      </svg>
+    </div>
+    <p class="viz-cap">Hora local de la estación
+      <span class="viz-range">{{ soil_chart.range_label }}</span></p>
+  {% endif %}
   <div class="table-wrap"><table>
     <thead><tr><th>Hora (local estación)</th><th>HS10 (VWC)</th><th>HS30 (VWC)</th><th>TA (°C)</th></tr></thead>
     <tbody>

@@ -398,14 +398,15 @@ class LinkUplinkService:
         self._last: dict[str, tuple] = {}
 
     def handle(self, dev_id: str, decoded: dict, at_s: int, raw_hex: str = "",
-               seq: int | None = None,
-               utc_offset_min: int | None = None) -> DownlinkCommand | None:
+               seq: int | None = None, utc_offset_min: int | None = None,
+               confirmed: bool = False) -> DownlinkCommand | None:
         last = self._last.get(dev_id)
         if (seq is not None and last is not None and last[:2] == (seq, raw_hex)
                 and 0 <= at_s - last[2] <= LINK_RETRY_WINDOW_S):
             return last[3]   # retry: same answer, nothing ingested twice
 
-        self._ingest.handle(dev_id, decoded, None, None, at_s, raw_hex=raw_hex)
+        self._ingest.handle(dev_id, decoded, None, None, at_s, raw_hex=raw_hex,
+                            confirmed=confirmed)
         if utc_offset_min is not None:
             self._store_offset(dev_id, utc_offset_min)
         self._mirror_mode(dev_id, decoded)

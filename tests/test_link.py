@@ -192,3 +192,14 @@ def test_the_station_mode_follows_what_the_node_sends(link_client):
     soil = bytes([codec.VERSION, codec.UP_SOIL, 1]) + struct.pack(">IHHh", latest, 800, 780, 245)
     _up(link_client, soil)
     assert svc.panel.station(DEV).mode == "forward"            # only a FORWARD node uplinks soil
+
+
+def test_a_confirmed_ping_over_the_link_is_logged_as_a_ping(link_client):
+    """The phone carries the ping the radio could not, and the log still names it
+    apart: only the on-demand ping asks for confirmation."""
+    _up(link_client, PING, seq=1, confirmed=True)
+    svc = link_client.application.config["SERVICES"]
+    assert svc.panel.uplinks(DEV, 1)[0].u_type == "ping"
+
+    _up(link_client, PING, seq=2)          # the periodic keep-alive, unconfirmed
+    assert svc.panel.uplinks(DEV, 1)[0].u_type == "forecast"

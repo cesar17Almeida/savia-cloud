@@ -44,6 +44,7 @@ from ...domain.models import (
     Station,
     UplinkRecord,
 )
+from .charts import build_soil_chart
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -466,6 +467,7 @@ def station(dev_eui: str):
     st = svc.panel.station(dev_eui)
     ups = svc.panel.uplinks(dev_eui)
     live = _live(svc, st, int(time.time()))
+    readings = svc.panel.readings(dev_eui)
     return render_template(
         "station.html",
         st=st,
@@ -475,7 +477,8 @@ def station(dev_eui: str):
         timezones=TIMEZONES,
         uplinks=[(u, _summary(u.u_type, u.payload_hex)) for u in ups],
         downlinks=svc.panel.downlinks(dev_eui),
-        readings=svc.panel.readings(dev_eui),
+        readings=readings,
+        soil_chart=build_soil_chart(readings, st.utc_offset_min),
         forecast=svc.panel.latest_forecast(dev_eui),
         config_state=svc.panel.config_state(dev_eui),
         tab=tab,
