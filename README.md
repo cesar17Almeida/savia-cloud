@@ -20,6 +20,9 @@ app/
     inference/     lstm.py (mismo modelo int8 que embebe el firmware)
     repository/    orm.py + db.py + sql.py (SQLAlchemy sobre PostgreSQL) ; memory.py (tests sin BD)
   interfaces/http/ Adaptador conductor: rutas Flask (routes.py)
+  interfaces/web/  Panel del operador: routes.py + view.py (modelos de vista) +
+                   charts.py (geometría de las gráficas) + templates/ + static/
+                   (css/, js/, vendor/apexcharts)
   factory.py       create_app(): composition root, cablea adaptadores en servicios
 config.py          Settings desde entorno
 run.py             Entrypoint de desarrollo

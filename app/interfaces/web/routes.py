@@ -44,7 +44,8 @@ from ...domain.models import (
     Station,
     UplinkRecord,
 )
-from .charts import build_soil_chart
+from .charts import build_soil_chart, forecast_payload, readings_payload
+from .view import fleet_cards, fleet_summary, is_online, latest_values
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -86,11 +87,28 @@ def _fmt_dt(ts_s, offset_min: int = 0) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(ts_s) + offset_min * 60))
 
 
+@bp.app_template_filter("ago")
+def _ago(ts_s, now_s=None) -> str:
+    """Epoch seconds -> 'hace 4 min'. Same wording live.js uses in the timeline."""
+    if not ts_s:
+        return "—"
+    d = max(0, int((time.time() if now_s is None else now_s) - int(ts_s)))
+    if d < 60:
+        return f"hace {d} s"
+    if d < 3600:
+        return f"hace {d // 60} min"
+    if d < 86400:
+        return f"hace {d // 3600} h"
+    return f"hace {d // 86400} d"
+
+
 @bp.app_context_processor
 def _nav():
-    """Sidebar highlight: every station page lives under the 'Estaciones' entry."""
+    """Sidebar highlight (every station page lives under 'Estaciones') plus the
+    one fleet-wide fact the chrome states: which transport the stations use."""
     endpoint = (request.endpoint or "").removeprefix("web.")
-    return {"nav_active": "password" if endpoint == "password" else "stations"}
+    return {"nav_active": "password" if endpoint == "password" else "stations",
+            "link_mode": current_app.config["SETTINGS"].link_mode}
 
 
 def _current_user():
@@ -413,7 +431,10 @@ def password():
 
 @bp.get("/")
 def dashboard():
-    return render_template("dashboard.html", stations=_services().panel.stations())
+    now_s = int(time.time())
+    cards = fleet_cards(_services().panel, now_s)
+    return render_template("dashboard.html", cards=cards,
+                           fleet=fleet_summary(cards), now_s=now_s)
 
 
 @bp.route("/stations/new", methods=["GET", "POST"])
@@ -464,22 +485,29 @@ def station(dev_eui: str):
     svc = _services()
     tab = request.args.get("tab", "")
     tab = tab if tab in STATION_TABS else STATION_TABS[0]
+    now_s = int(time.time())
     st = svc.panel.station(dev_eui)
     ups = svc.panel.uplinks(dev_eui)
-    live = _live(svc, st, int(time.time()))
+    live = _live(svc, st, now_s)
     readings = svc.panel.readings(dev_eui)
+    forecast = svc.panel.latest_forecast(dev_eui)
     return render_template(
         "station.html",
         st=st,
         live=live,
         timeline=_timeline(live),
-        station_local_now=_fmt_dt(int(time.time()), st.utc_offset_min),
+        station_local_now=_fmt_dt(now_s, st.utc_offset_min),
         timezones=TIMEZONES,
         uplinks=[(u, _summary(u.u_type, u.payload_hex)) for u in ups],
         downlinks=svc.panel.downlinks(dev_eui),
         readings=readings,
         soil_chart=build_soil_chart(readings, st.utc_offset_min),
-        forecast=svc.panel.latest_forecast(dev_eui),
+        readings_json=readings_payload(readings, st.utc_offset_min),
+        forecast=forecast,
+        forecast_json=forecast_payload(forecast, st.utc_offset_min),
+        latest=latest_values(readings),
+        online=is_online(st, now_s),
+        now_s=now_s,
         config_state=svc.panel.config_state(dev_eui),
         tab=tab,
     )

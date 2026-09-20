@@ -1,27 +1,30 @@
+{% import "_icons.html" as i %}
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>Savia Cloud — Acceso</title>
-  <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
+  {% include "_head.html" %}
 </head>
 <body class="login-body">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="toasts" id="toasts" role="status" aria-live="polite">
-        {% for cat, msg in messages %}
-          <div class="toast toast-{{ cat }}">
-            <span>{{ msg }}</span>
-            <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="toasts" id="toasts" role="status" aria-live="polite">
+      {% for cat, msg in messages %}
+        <div class="toast toast-{{ cat }}">
+          {{ i.ico('check' if cat == 'ok' else 'alert', 'ico ico-sm') }}
+          <span>{{ msg }}</span>
+          <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
 <div class="login-card">
   <div class="brand big">SAVIA<span>cloud</span></div>
-  <p class="muted">Consola del operador</p>
+  <p class="muted small">Consola del operador</p>
   <form method="post">
     <label>Usuario
       <input name="user" autocomplete="username" autofocus>
@@ -32,19 +35,6 @@
     <button type="submit" class="primary">Entrar</button>
   </form>
 </div>
-<script>
-// Toasts: errors stay until dismissed, confirmations fade on their own.
-(function () {
-  var box = document.getElementById("toasts");
-  if (!box) return;
-  box.addEventListener("click", function (ev) {
-    var x = ev.target.closest(".toast-x");
-    if (x) x.parentElement.remove();
-  });
-  box.querySelectorAll(".toast-ok").forEach(function (t) {
-    setTimeout(function () { t.remove(); }, 8000);
-  });
-})();
-</script>
+<script src="{{ url_for('web.static', filename='js/panel.js') }}" defer></script>
 </body>
 </html>

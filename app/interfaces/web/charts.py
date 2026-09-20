@@ -367,3 +367,77 @@ def _aria(rows: list[SoilReading], lo: float, hi: float, has_ta: bool) -> str:
     txt = (f"Humedad del suelo a 10 y 30 cm en {len(rows)} hora(s), "
            f"de {_vwc(lo)} a {_vwc(hi)} VWC")
     return txt + (", con la temperatura del aire debajo." if has_ta else ".")
+
+
+# --- sparkline: the trend inside a fleet card --------------------------------
+# Drawn edge to edge and stretched by the card (preserveAspectRatio="none"), so
+# the stroke is kept honest with vector-effect and no round marker is drawn -- an
+# ellipse is what a circle becomes under a non-uniform scale. The current value
+# rides beside the sparkline as text, which is also the relief HS30 needs for its
+# sub-3:1 contrast.
+_SPARK_W, _SPARK_H, _SPARK_PAD = 300.0, 42.0, 3.0
+
+
+@dataclass(frozen=True)
+class Sparkline:
+    width: float
+    height: float
+    line: str        # polyline "points"
+    area: str        # the same run closed onto the baseline
+    color: str
+    aria_label: str
+
+
+def build_sparkline(readings: Sequence[SoilReading], key: str = "hs30",
+                    color: str = "--viz-hs30") -> Sparkline | None:
+    """Trend of one field over the readings given, or None with fewer than two."""
+    rows = sorted((r for r in readings if r.ts_hour_s), key=lambda r: r.ts_hour_s)
+    values = [(r.ts_hour_s, float(getattr(r, key)))
+              for r in rows if getattr(r, key) is not None]
+    if len(values) < 2:
+        return None
+    t0, t1 = values[0][0], values[-1][0]
+    lo, hi = _domain([v for _, v in values], 0.02)
+    pts = [(_round(_scale(ts, t0, t1, 0.0, _SPARK_W)),
+            _round(_scale(v, lo, hi, _SPARK_H - _SPARK_PAD, _SPARK_PAD)))
+           for ts, v in values]
+    line = " ".join(f"{x},{y}" for x, y in pts)
+    area = f"{pts[0][0]},{_SPARK_H} {line} {pts[-1][0]},{_SPARK_H}"
+    return Sparkline(_SPARK_W, _SPARK_H, line, area, color,
+                     f"Tendencia de {key.upper()} en {len(values)} lecturas, "
+                     f"de {_vwc3(min(v for _, v in values))} a "
+                     f"{_vwc3(max(v for _, v in values))} VWC")
+
+
+# --- payloads for the client charts ------------------------------------------
+# The interactive chart is an enhancement over the inline SVG above; it reads
+# these plain values. Instants are shifted into station-local and read back as
+# UTC, exactly the trick the `dt` template filter uses, so every hour printed in
+# the panel -- axis, tooltip, table -- is the same hour.
+
+
+def _opt(v) -> float | None:
+    return None if v is None else float(v)
+
+
+def readings_payload(readings: Sequence[SoilReading],
+                     utc_offset_min: int = 0) -> dict:
+    """Stored readings as {offset_min, rows: [{t(ms), hs10, hs30, ta}]}, oldest
+    first. The offset travels with them so the client can turn a UTC instant --
+    what the table rows carry -- into the same shifted scale the points use."""
+    rows = sorted((r for r in readings if r.ts_hour_s), key=lambda r: r.ts_hour_s)
+    return {"offset_min": utc_offset_min,
+            "rows": [{"t": (r.ts_hour_s + utc_offset_min * 60) * 1000,
+                      "hs10": _opt(r.hs10), "hs30": _opt(r.hs30), "ta": _opt(r.ta)}
+                     for r in rows]}
+
+
+def forecast_payload(run, utc_offset_min: int = 0) -> dict | None:
+    """The stored run as {min, rows: [{t(ms), hs30}]}, one point per hour ahead."""
+    if run is None or not run.hs30:
+        return None
+    base = run.run_ts_s + utc_offset_min * 60
+    values = [float(v) for v in run.hs30]
+    return {"min": min(values),
+            "rows": [{"t": (base + (i + 1) * 3600) * 1000, "hs30": v}
+                     for i, v in enumerate(values)]}

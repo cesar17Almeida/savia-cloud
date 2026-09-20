@@ -1,58 +1,63 @@
+{% import "_icons.html" as i %}
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}Savia Cloud{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('web.static', filename='panel.css') }}">
+  {% include "_head.html" %}
 </head>
 <body>
 <header class="appbar">
+  <button type="button" class="nav-toggle" id="nav-toggle"
+          aria-label="Abrir el menú" aria-controls="sidenav" aria-expanded="false">
+    {{ i.ico("menu") }}
+  </button>
   <a class="brand" href="{{ url_for('web.dashboard') }}">SAVIA<span>cloud</span></a>
-  <form method="post" action="{{ url_for('web.logout') }}" class="inline">
-    <button type="submit" class="ghost">Cerrar sesión</button>
-  </form>
+  <div class="appbar-spacer"></div>
+  <div class="appbar-end">
+    <form method="post" action="{{ url_for('web.logout') }}" class="inline">
+      <button type="submit" class="ghost small">{{ i.ico("logout", "ico ico-sm") }}Cerrar sesión</button>
+    </form>
+  </div>
 </header>
 <div class="shell">
-  <aside class="sidenav">
-    <nav>
+  <aside class="sidenav" id="sidenav">
+    <nav aria-label="Secciones">
       <a class="nav-item {{ 'is-active' if nav_active == 'stations' }}"
          href="{{ url_for('web.dashboard') }}"
-         {{ 'aria-current=page' if nav_active == 'stations' }}>Estaciones</a>
+         {{ 'aria-current=page' if nav_active == 'stations' }}>{{ i.ico("station") }}Estaciones</a>
       <a class="nav-item {{ 'is-active' if nav_active == 'password' }}"
          href="{{ url_for('web.password') }}"
-         {{ 'aria-current=page' if nav_active == 'password' }}>Contraseña</a>
+         {{ 'aria-current=page' if nav_active == 'password' }}>{{ i.ico("key") }}Contraseña</a>
     </nav>
-  </aside>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="toasts" id="toasts" role="status" aria-live="polite">
-        {% for cat, msg in messages %}
-          <div class="toast toast-{{ cat }}">
-            <span>{{ msg }}</span>
-            <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
-          </div>
-        {% endfor %}
+    <div class="sidenav-foot">
+      <div class="row-between">
+        <span>Enlace</span>
+        <span class="chip">{{ 'HTTP' if link_mode == 'http' else 'TTN' }}</span>
       </div>
-    {% endif %}
-  {% endwith %}
+    </div>
+  </aside>
   <main>
     {% block content %}{% endblock %}
   </main>
 </div>
-<script>
-// Toasts: errors stay until dismissed, confirmations fade on their own.
-(function () {
-  var box = document.getElementById("toasts");
-  if (!box) return;
-  box.addEventListener("click", function (ev) {
-    var x = ev.target.closest(".toast-x");
-    if (x) x.parentElement.remove();
-  });
-  box.querySelectorAll(".toast-ok").forEach(function (t) {
-    setTimeout(function () { t.remove(); }, 8000);
-  });
-})();
-</script>
+<div class="nav-scrim" id="nav-scrim" hidden></div>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="toasts" id="toasts" role="status" aria-live="polite">
+      {% for cat, msg in messages %}
+        <div class="toast toast-{{ cat }}">
+          {{ i.ico( 'check' if cat == 'ok' else 'alert', 'ico ico-sm') }}
+          <span>{{ msg }}</span>
+          <button type="button" class="toast-x" aria-label="Descartar">&times;</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+<script src="{{ url_for('web.static', filename='js/panel.js') }}" defer></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,32 @@
+{% import "_icons.html" as i %}
+{# Standing notice for a config the panel cannot resolve by itself. The downlink
+   log keeps the row and its detail; dismissing only puts this banner away. #}
+{% if config_state and config_state.state in ('scheduled', 'delivered', 'failed') %}
+<div class="notice notice-{{ 'error' if config_state.state == 'failed' else 'warn' }}">
+  {{ i.ico('alert' if config_state.state == 'failed' else 'clock') }}
+  <div class="notice-body">
+  {% if config_state.state == 'failed' %}
+    <strong>La configuración no salió del backend.</strong>
+    El envío a TTN falló el {{ config_state.ts_s | dt(st.utc_offset_min) }}, así que la
+    estación <strong>no</strong> tiene estos valores. Vuelve a enviarlos desde
+    «Configurar por LoRa» cuando esté resuelto.
+    <div class="muted small">{{ config_state.detail | dl_detail }}</div>
+  {% elif config_state.state == 'delivered' %}
+    <strong>Configuración pendiente de confirmación.</strong>
+    Entregada a la estación en su ventana RX; hasta que responda con CFG_ACK, lo
+    guardado aquí puede no coincidir con lo que ejecuta el nodo.
+  {% else %}
+    <strong>Configuración pendiente de confirmación.</strong>
+    Encolada en TTN el {{ config_state.ts_s | dt(st.utc_offset_min) }}. Viaja en la
+    próxima ventana RX de la estación; hasta que responda con CFG_ACK, lo guardado aquí
+    puede no coincidir con lo que ejecuta el nodo.
+  {% endif %}
+  </div>
+  <form method="post" class="inline"
+        action="{{ url_for('web.station_config_dismiss', dev_eui=st.dev_eui) }}">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <button type="submit" class="notice-x" title="Descartar aviso"
+            aria-label="Descartar aviso">&times;</button>
+  </form>
+</div>
+{% endif %}

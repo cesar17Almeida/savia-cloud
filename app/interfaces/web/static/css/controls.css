@@ -1,0 +1,261 @@
+/* Savia Cloud operator panel -- the things an operator acts on: buttons, the
+   segmented range picker, form fields, data tables and the login card. */
+
+/* --- tables ------------------------------------------------------------------ */
+
+.table-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+.table-tools .grow { flex: 1; }
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.search .ico {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--muted);
+  pointer-events: none;
+  width: 15px;
+  height: 15px;
+}
+.search input {
+  padding-left: 1.9rem;
+  width: min(230px, 46vw);
+  background: var(--sunken);
+}
+.count-note { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.table-wrap {
+  overflow: auto;
+  max-height: 460px;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--line);
+}
+.table-wrap.is-short { max-height: none; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.89rem; }
+th, td { text-align: left; padding: 0.55rem 0.75rem; }
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  white-space: nowrap;
+}
+/* Data rows keep one line and the table scrolls sideways: wrapping a dense log
+   on a phone turns every row into a paragraph and still overflows. */
+td {
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+  white-space: nowrap;
+}
+td .empty, td.wrap { white-space: normal; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr { transition: background var(--dur-1) linear; }
+tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--sunken) 70%, transparent); }
+tbody tr:hover td { background: var(--accent-wash); }
+td .chip { font-size: 0.72rem; }
+td.payload { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+/* Sortable header: the caret only ever shows the column's own state. */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th.sortable .caret {
+  display: inline-block;
+  width: 0.7em;
+  margin-left: 0.25em;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+th.sortable:hover .caret { opacity: 0.4; }
+th[aria-sort] { color: var(--accent-deep); }
+th[aria-sort] .caret { opacity: 1; }
+
+.row-hidden { display: none; }
+
+/* --- buttons ------------------------------------------------------------------ */
+
+button, a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.52rem 0.95rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 520;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease),
+              background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease),
+              transform var(--dur-1) var(--ease);
+}
+button:hover, a.btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent-deep);
+  box-shadow: var(--sh-1);
+}
+button:active, a.btn:active { transform: translateY(1px); }
+.btn .ico, button .ico { width: 16px; height: 16px; }
+
+.btn.primary, button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 1px 2px rgba(28, 36, 32, 0.12);
+}
+.btn.primary:hover, button.primary:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+  color: var(--accent-ink);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.btn.ghost, button.ghost { border-color: transparent; background: none; color: var(--muted); }
+.btn.ghost:hover, button.ghost:hover { background: var(--bg); color: var(--ink); box-shadow: none; }
+.btn.small, button.small { padding: 0.34rem 0.65rem; font-size: 0.82rem; }
+.btn.icon, button.icon { padding: 0.45rem; width: 34px; }
+
+/* Segmented control: the range picker above a chart. */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.seg button {
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  border-radius: calc(var(--r-sm) - 3px);
+}
+.seg button:hover { background: var(--surface); color: var(--ink); box-shadow: none; }
+.seg button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--accent-deep);
+  font-weight: 600;
+  box-shadow: var(--sh-1);
+}
+
+/* --- forms -------------------------------------------------------------------- */
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.83rem;
+  color: var(--muted);
+  font-weight: 550;
+  min-width: 0;
+}
+label > .caption { display: flex; align-items: baseline; gap: 0.35rem; flex-wrap: wrap; }
+input, select, textarea {
+  padding: 0.52rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 400;
+  color: var(--ink);
+  background: var(--surface);
+  min-width: 0;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+input::placeholder { color: color-mix(in srgb, var(--muted) 62%, transparent); }
+input:hover, select:hover { border-color: var(--line-strong); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2368746e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 1.9rem;
+}
+.hint { font-size: 0.78rem; color: var(--muted); font-weight: 400; }
+
+.row { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.85rem; }
+.inline { display: inline; }
+.cfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.9rem; }
+.cfg-submit {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.narrow-form { max-width: 680px; }
+.narrow-form h2 { margin-top: 1.4rem; }
+.narrow-form h2:first-of-type { margin-top: 0; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+.form-grid .span-2 { grid-column: 1 / -1; }
+@media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+.form-legend { margin: 0 0 1rem; }
+.req { color: var(--accent); font-weight: 700; }
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* --- login -------------------------------------------------------------------- */
+
+.login-body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 1.2rem;
+  background:
+    radial-gradient(900px 480px at 50% -12%, var(--ok-bg), transparent 62%),
+    var(--bg);
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-2);
+  padding: 2.3rem 2.4rem 2.1rem;
+  width: min(380px, 100%);
+  text-align: center;
+  animation: reveal var(--dur-3) var(--ease-out) backwards;
+}
+.login-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1.4rem;
+  text-align: left;
+}
+.login-card button { margin-top: 0.3rem; padding-block: 0.6rem; }

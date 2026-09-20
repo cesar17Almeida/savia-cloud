@@ -1,0 +1,127 @@
+{% import "_icons.html" as i %}
+<section class="card">
+  <div class="card-head">
+    <div class="card-title">{{ i.ico("chart") }}<h2>Lecturas de suelo almacenadas</h2></div>
+    {% if soil_chart %}
+      <div class="seg" role="group" aria-label="Ventana de tiempo" data-range>
+        <button type="button" data-hours="24" aria-pressed="false">24 h</button>
+        <button type="button" data-hours="48" aria-pressed="false">48 h</button>
+        <button type="button" data-hours="0" aria-pressed="true">Todo</button>
+      </div>
+    {% endif %}
+  </div>
+
+  {# Two panels, one time axis. HS10/HS30 share a VWC scale; TA gets its own box --
+     a second y-scale on the same plot would invent a correlation between soil
+     water and air temperature. The inline SVG is what the server draws and what a
+     browser without JavaScript keeps; charts.js swaps in the interactive twin. #}
+  {% if soil_chart %}
+    <div class="viz-legend">
+      {% for s in soil_chart.soil.series %}
+        <span><i class="viz-key" style="background: var({{ s.color }})"></i>{{ s.label }}</span>
+      {% endfor %}
+      {% if soil_chart.ta %}
+        <span><i class="viz-key" style="background: var(--viz-ta)"></i>Temperatura del aire</span>
+      {% endif %}
+    </div>
+
+    <div class="chart-slot" data-chart="soil">
+      <div class="chart-live" hidden>
+        <p class="viz-panel-title">Humedad volumétrica del suelo (VWC)</p>
+        <div class="chart-box is-soil" data-role="soil"></div>
+        <p class="viz-panel-title" data-role="ta-title" hidden>Temperatura del aire, TA (°C)</p>
+        <div class="chart-box is-ta" data-role="ta" hidden></div>
+      </div>
+      <div class="chart-fallback">
+        <div class="chart-wrap">
+          <svg class="soil-chart" role="img" aria-label="{{ soil_chart.aria_label }}"
+               viewBox="0 0 {{ soil_chart.width }} {{ soil_chart.height }}">
+            {% for p in soil_chart.panels %}
+              <text class="viz-title" x="{{ soil_chart.left }}" y="{{ p.title_y }}">{{ p.title }}</text>
+              {% for t in p.y_ticks %}
+                <line class="viz-grid" x1="{{ soil_chart.left }}" y1="{{ t.pos }}"
+                      x2="{{ soil_chart.right }}" y2="{{ t.pos }}"></line>
+                <text class="viz-tick" x="{{ soil_chart.left - 10 }}" y="{{ t.pos + 4 }}"
+                      text-anchor="end">{{ t.label }}</text>
+              {% endfor %}
+              {% for s in p.series %}
+                {% for run in s.runs %}
+                  <polyline class="viz-line" stroke="var({{ s.color }})" points="{{ run.attr }}"></polyline>
+                {% endfor %}
+                {% for d in s.dots %}
+                  <circle class="viz-dot" cx="{{ d.x }}" cy="{{ d.y }}" r="4"
+                          fill="var({{ s.color }})"></circle>
+                {% endfor %}
+                {% if s.end %}
+                  <text class="viz-end" x="{{ s.end.x }}" y="{{ s.end.y }}">{{ s.end.text }}</text>
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {% for t in soil_chart.x_ticks %}
+              <line class="viz-grid" x1="{{ t.pos }}" y1="{{ soil_chart.band_bottom }}"
+                    x2="{{ t.pos }}" y2="{{ soil_chart.band_bottom + 5 }}"></line>
+              <text class="viz-tick" x="{{ t.pos }}" y="{{ soil_chart.x_label_y }}"
+                    text-anchor="middle">{{ t.label }}</text>
+            {% endfor %}
+            {# Hover readout, last so it sits on top: the browser's own SVG tooltip. #}
+            {% for b in soil_chart.bands %}
+              <rect class="viz-band" x="{{ b.x }}" y="{{ soil_chart.band_top }}"
+                    width="{{ b.width }}" height="{{ soil_chart.band_bottom - soil_chart.band_top }}">
+                <title>{{ b.text }}</title>
+              </rect>
+            {% endfor %}
+          </svg>
+        </div>
+      </div>
+    </div>
+    <script type="application/json" id="readings-data">{{ readings_json | tojson }}</script>
+    <p class="viz-cap">Hora local de la estación
+      <span class="viz-range" data-range-label>{{ soil_chart.range_label }}</span></p>
+  {% elif readings %}
+    <p class="muted small">Las lecturas guardadas no traen ningún valor medido, así que
+      no hay nada que dibujar. La tabla de abajo las lista igualmente.</p>
+  {% else %}
+    <div class="empty">
+      {{ i.ico("drop") }}
+      <strong>Sin lecturas todavía</strong>
+      <p>Llegarán con los uplinks SOIL de una estación en modo forward, y esta
+        gráfica se dibujará sola en cuanto haya dos horas medidas.</p>
+    </div>
+  {% endif %}
+</section>
+
+{% if readings %}
+<section class="card flush">
+  <div class="card-head">
+    <div class="card-title">{{ i.ico("list") }}<h2>Valores horarios</h2></div>
+    <div class="table-tools" style="margin: 0">
+      <span class="count-note" data-count-for="readings-table"></span>
+      <label class="search">
+        {{ i.ico("search") }}
+        <input type="search" placeholder="Filtrar…" data-search="readings-table"
+               aria-label="Filtrar las lecturas">
+      </label>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table id="readings-table" data-table>
+      <thead><tr>
+        <th class="sortable" data-sort="text">Hora (local estación)<span class="caret">↕</span></th>
+        <th class="sortable num" data-sort="number">HS10 (VWC)<span class="caret">↕</span></th>
+        <th class="sortable num" data-sort="number">HS30 (VWC)<span class="caret">↕</span></th>
+        <th class="sortable num" data-sort="number">TA (°C)<span class="caret">↕</span></th>
+      </tr></thead>
+      <tbody>
+      {% for r in readings %}
+        <tr data-ts="{{ r.ts_hour_s }}">
+          <td>{{ r.ts_hour_s | dt(st.utc_offset_min) }}</td>
+          <td class="num">{{ '%.3f'|format(r.hs10) if r.hs10 is not none else '—' }}</td>
+          <td class="num">{{ '%.3f'|format(r.hs30) if r.hs30 is not none else '—' }}</td>
+          <td class="num">{{ '%.1f'|format(r.ta) if r.ta is not none else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}

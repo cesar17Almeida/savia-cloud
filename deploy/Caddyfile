@@ -2,5 +2,8 @@
 # TTN webhooks REQUIRE https, so the instance needs a DNS name pointing at it.
 # Replace with your hostname (own domain, DuckDNS, etc.).
 savia.example.com {
+	# The panel ships a vendored chart library; compressing it turns ~560 kB into
+	# ~150 kB on the wire, which matters on the phone browser used in the field.
+	encode zstd gzip
 	reverse_proxy 127.0.0.1:8000
 }

@@ -1,0 +1,341 @@
+/* Savia Cloud operator panel -- the pieces that only exist here: the LoRa
+   timeline, the in-flight notice, and the chart chrome (server SVG + ApexCharts). */
+
+/* --- in-flight notice ------------------------------------------------------ */
+/* A downlink waiting for the station's RX window, its delivery, and the forecast
+   the station reports back. Collapsed while there is nothing to say. */
+
+.linkbar-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-3) var(--ease),
+              margin-bottom var(--dur-3) var(--ease);
+}
+.linkbar-wrap.is-open { grid-template-rows: 1fr; margin-bottom: 1.15rem; }
+.linkbar-clip { min-height: 0; overflow: hidden; }
+.linkbar {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1.15rem;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  transition: background var(--dur-3) var(--ease), color var(--dur-3) var(--ease);
+}
+.linkbar.is-idle { visibility: hidden; }
+.linkbar.is-sending   { background: var(--warn-bg); color: #7a5310; }
+.linkbar.is-delivered { background: var(--ok-bg); color: var(--accent-deep); }
+.linkbar.is-result    { background: var(--accent); color: var(--accent-ink); }
+.lb-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.lb-title { font-size: 1rem; font-weight: 620; letter-spacing: -0.01em; }
+.lb-detail { font-size: 0.86rem; opacity: 0.84; }
+.lb-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+.lb-meta { font-size: 0.76rem; opacity: 0.85; white-space: nowrap; }
+
+/* State icon, drawn in CSS: spinner / check / forecast bars. */
+.lb-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.lb-icon i { display: block; }
+.is-sending .lb-icon i {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  animation: lb-spin 0.8s linear infinite;
+}
+.is-delivered .lb-icon i {
+  width: 8px; height: 14px; margin-top: -3px;
+  border: solid currentColor; border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+  animation: lb-pop 0.35s ease-out;
+}
+.is-result .lb-icon i {
+  width: 16px; height: 14px;
+  background:
+    linear-gradient(currentColor, currentColor) 0 100% / 4px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 6px 100% / 4px 70% no-repeat,
+    linear-gradient(currentColor, currentColor) 12px 100% / 4px 45% no-repeat;
+  animation: lb-pop 0.35s ease-out;
+}
+
+/* nube ---o--- estacion: the packet waits at the cloud end, then crosses. */
+.lb-track { display: flex; align-items: center; gap: 0.45rem; font-size: 0.73rem; opacity: 0.85; }
+.lb-line {
+  position: relative; width: 96px; height: 2px; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 8px);
+  opacity: 0.9;
+}
+.lb-line i {
+  position: absolute; top: 50%; left: 0; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; background: currentColor;
+}
+.is-sending .lb-line i { animation: lb-wait 1.3s ease-in-out infinite; }
+.is-delivered .lb-line i { animation: lb-cross 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.is-result .lb-line i { left: 100%; animation: lb-back 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+/* Indeterminate hairline while the downlink waits. */
+.is-sending::after {
+  content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 35%;
+  background: currentColor; opacity: 0.45; border-radius: 2px;
+  animation: lb-sweep 1.6s ease-in-out infinite;
+}
+@keyframes lb-spin  { to { transform: rotate(360deg); } }
+@keyframes lb-pop   { from { opacity: 0; scale: 0.5; } to { opacity: 1; scale: 1; } }
+@keyframes lb-wait  { 0%, 100% { opacity: 0.35; scale: 0.8; } 50% { opacity: 1; scale: 1.25; } }
+@keyframes lb-cross { from { left: 0; } to { left: 100%; } }
+@keyframes lb-back  { from { left: 100%; } to { left: 0; } }
+@keyframes lb-sweep { 0% { left: -35%; } 100% { left: 100%; } }
+@media (max-width: 760px) { .lb-track { display: none; } }
+
+/* --- live communication card ------------------------------------------------ */
+
+.live-card { display: flex; flex-direction: column; min-height: 0; }
+.live-card .card-head { margin-bottom: 0.4rem; }
+.live-status {
+  display: flex; align-items: center; gap: 0.45rem;
+  font-size: 0.8rem; color: var(--muted);
+}
+.live-status.is-off .pulse i { background: var(--muted); }
+.live-status.is-off .pulse::after { display: none; }
+.live-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1.05rem;
+  font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem;
+}
+.live-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.live-legend .tl-glyph { width: 18px; height: 18px; font-size: 0.72rem; }
+
+.timeline {
+  list-style: none;
+  margin: 0 -0.45rem;
+  padding: 0 0.45rem 1.4rem;
+  max-height: 620px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* Older frames fade out instead of being cut mid-row. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4rem), transparent);
+}
+.tl-empty { padding: 0.9rem 0; }
+.tl-row {
+  position: relative;
+  display: flex;
+  gap: 0.85rem;
+  padding: 0.7rem 0.5rem;
+  border-radius: var(--r-sm);
+}
+.tl-row + .tl-row { border-top: 1px solid var(--line-soft); border-radius: 0; }
+/* The thread that ties the frames together. */
+.tl-row::before {
+  content: ""; position: absolute; left: calc(0.5rem + 12px); top: 0; bottom: 0;
+  width: 1px; background: var(--line);
+}
+.tl-row:first-child::before { top: calc(0.7rem + 12px); }
+.tl-row:last-child::before { bottom: auto; height: calc(0.7rem + 12px); }
+.tl-row:only-child::before { display: none; }
+.tl-glyph {
+  position: relative; z-index: 1; flex: none;
+  width: 25px; height: 25px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  font-size: 0.9rem; font-weight: 700; line-height: 1; font-style: normal;
+}
+.tl-up .tl-glyph, .tl-glyph.up     { background: var(--ok-bg); color: var(--accent); }
+.tl-down .tl-glyph, .tl-glyph.down { background: var(--info-bg); color: var(--info); }
+.tl-body { flex: 1; min-width: 0; }
+.tl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+.tl-route { font-size: 0.78rem; color: var(--muted); }
+.tl-bytes { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-time {
+  margin-left: auto; font-size: 0.78rem; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tl-summary { margin-top: 0.15rem; font-size: 0.92rem; }
+.tl-hex {
+  margin-top: 0.3rem; color: var(--muted); font-size: 0.76rem; letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tl-row.is-new { animation: tl-in var(--dur-3) var(--ease-out), tl-glow 2.4s ease-out; }
+.tl-row.is-changed { animation: tl-glow 2.4s ease-out; }
+@keyframes tl-in   { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes tl-glow { from { background: var(--ok-bg); } to { background: transparent; } }
+
+/* TA window of a TIME_TA downlink: 48 h behind + 24 h ahead, one bar per hour. */
+.ta-strip { margin-top: 0.55rem; max-width: 560px; }
+.ta-bars { display: flex; gap: 7px; height: 46px; }
+.ta-seg { display: flex; align-items: flex-end; gap: 1px; min-width: 0; }
+.ta-seg i { flex: 1; min-width: 0; border-radius: 2px 2px 0 0; }
+.ta-past i   { background: var(--info); opacity: 0.5; }
+.ta-future i { background: var(--viz-ta); opacity: 0.8; }
+.ta-axis { display: flex; gap: 7px; margin-top: 3px; font-size: 0.71rem; color: var(--muted); }
+.ta-axis span { border-top: 1px solid var(--line); padding-top: 2px; min-width: 0; white-space: nowrap; }
+.ta-cap {
+  margin-top: 0.25rem; font-size: 0.76rem; color: var(--muted);
+  display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap;
+}
+.ta-range { font-variant-numeric: tabular-nums; }
+
+/* Forecast reported by a station that infers on board (one value over LoRa). */
+.onboard {
+  display: flex; align-items: center; gap: 0.9rem;
+  margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line-soft);
+}
+.onboard-value {
+  font-size: 2rem; font-weight: 640; color: var(--accent-deep);
+  line-height: 1.1; letter-spacing: -0.03em;
+}
+.onboard-label { line-height: 1.35; font-size: 0.86rem; }
+.onboard.is-changed .onboard-value { animation: lb-pop 0.4s ease-out; }
+
+/* --- charts: shared chrome --------------------------------------------------- */
+
+.viz-legend {
+  display: flex; flex-wrap: wrap; gap: 0.3rem 1.1rem;
+  font-size: 0.8rem; color: var(--muted); margin-bottom: 0.6rem;
+}
+.viz-legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
+.viz-key { width: 14px; height: 2px; border-radius: 2px; flex: none; }
+.viz-key.block { height: 9px; width: 9px; border-radius: 2px; }
+.viz-cap {
+  margin: 0.4rem 0 0; font-size: 0.76rem; color: var(--muted);
+  display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap;
+}
+.viz-range { font-variant-numeric: tabular-nums; }
+
+/* ApexCharts mount points. Height includes the axis band so the card never
+   grows a nested scrollbar. */
+.chart-box { width: 100%; min-height: 0; }
+.chart-box.is-soil { height: 260px; }
+.chart-box.is-ta { height: 150px; }
+.chart-box.is-forecast { height: 230px; }
+.chart-box:not(.is-ready) { opacity: 0; }
+.chart-box.is-ready { animation: reveal var(--dur-3) var(--ease-out); }
+
+/* A chart slot holds both renderings: the server's SVG, drawn before any script
+   runs and kept when none ever does, and the interactive twin that replaces it. */
+.chart-slot { position: relative; }
+.viz-panel-title {
+  margin: 0 0 0.1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.viz-panel-title + .chart-box { margin-bottom: 0.2rem; }
+
+/* Forecast strip: 24 columns, one per hour ahead. The data-end is rounded and
+   the baseline square, and the columns never touch. */
+.forecast-strip { display: flex; gap: 3px; align-items: flex-end; height: 120px; }
+.bar-wrap { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.bar {
+  width: 100%;
+  max-width: 24px;
+  margin: 0 auto;
+  background: var(--viz-hs30);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  opacity: 0.85;
+}
+
+.chart-wrap { overflow-x: auto; margin: 0 -0.2rem; }
+.soil-chart { display: block; width: 100%; min-width: 660px; height: auto; }
+.viz-grid { stroke: var(--line); stroke-width: 1; }
+.viz-tick { fill: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.viz-title { fill: var(--muted); font-size: 14px; }
+.viz-end { fill: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.viz-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.viz-dot { stroke: var(--surface); stroke-width: 2; }
+.viz-band { fill: transparent; pointer-events: all; }
+.viz-band:hover { fill: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+/* --- sparkline (server-rendered, dashboard cards) ---------------------------- */
+
+.spark { display: block; width: 100%; height: 42px; overflow: visible; }
+.spark-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.spark-dot { stroke: var(--surface); stroke-width: 2; }
+.spark-empty {
+  height: 42px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; color: var(--line-strong);
+  border-top: 1px dashed var(--line); margin-top: 0.4rem;
+}
+
+/* --- station header ---------------------------------------------------------- */
+
+.station-id {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: var(--muted);
+}
+.station-id .mono { color: var(--ink-2); }
+
+/* --- ApexCharts theme --------------------------------------------------------
+   The library ships its own chrome; these rules bring it onto the panel's tokens
+   (recessive hairline grid, panel type, and a tooltip that reads value-first). */
+
+.apexcharts-canvas { font-family: inherit !important; }
+.apexcharts-tooltip.apexcharts-theme-light {
+  border: 1px solid var(--line) !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: var(--sh-3) !important;
+  background: var(--surface) !important;
+  font-family: inherit !important;
+}
+.apexcharts-xaxistooltip, .apexcharts-yaxistooltip { display: none !important; }
+.apexcharts-gridline { stroke: var(--line); }
+/* Axis text only: a blanket .apexcharts-text rule would also repaint the direct
+   labels, which must stay in ink. */
+.apexcharts-xaxis-label, .apexcharts-yaxis-label {
+  fill: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.apexcharts-point-annotations text { font-variant-numeric: tabular-nums; }
+.apexcharts-selection-rect { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* Tooltip body: values lead, series names follow, keyed by a short stroke. */
+.tip { padding: 0.55rem 0.7rem; min-width: 146px; }
+.tip-head {
+  font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums;
+  padding-bottom: 0.35rem; margin-bottom: 0.35rem; border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+.tip-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.11rem 0; }
+.tip-key { width: 12px; height: 2px; border-radius: 2px; flex: none; align-self: center; }
+.tip-val {
+  font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums;
+  margin-left: auto; white-space: nowrap;
+}
+.tip-name { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+
+/* --- readings: value table under the chart ----------------------------------- */
+
+.values-toggle {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 0.5rem;
+}
+.values-toggle > summary {
+  cursor: pointer;
+  font-size: 0.83rem;
+  color: var(--muted);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: var(--r-xs);
+  padding: 0.15rem 0;
+}
+.values-toggle > summary::-webkit-details-marker { display: none; }
+.values-toggle > summary:hover { color: var(--ink); }
+.values-toggle > summary .ico { transition: transform var(--dur-2) var(--ease); }
+.values-toggle[open] > summary .ico { transform: rotate(90deg); }
+
+@media (max-width: 760px) {
+  .chart-box.is-soil { height: 230px; }
+  .chart-box.is-forecast { height: 200px; }
+  .timeline { max-height: 520px; }
+  .onboard-value { font-size: 1.7rem; }
+}

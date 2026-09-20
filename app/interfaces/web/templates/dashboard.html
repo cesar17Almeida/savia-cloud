@@ -1,30 +1,110 @@
 {% extends "base.html" %}
+{% import "_icons.html" as i %}
 {% block title %}Estaciones — Savia Cloud{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>Estaciones</h1>
-  <a class="btn primary" href="{{ url_for('web.station_new') }}">Agregar dispositivo</a>
+  <div class="titles">
+    <h1>Estaciones</h1>
+    <p class="sub">
+      {% if fleet.total %}
+        {{ fleet.total }} dispositivo{{ '' if fleet.total == 1 else 's' }} en el backend
+        {% if fleet.last_uplink_at %}
+          <span aria-hidden="true">·</span>
+          última actividad {{ fleet.last_uplink_at | ago(now_s) }}
+        {% endif %}
+      {% else %}
+        Ninguna estación dada de alta todavía
+      {% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="{{ url_for('web.station_new') }}">{{ i.ico("plus") }}Agregar dispositivo</a>
+  </div>
 </div>
-{% if not stations %}
-  <p class="muted">Sin estaciones todavía. Aparecerán con su primer uplink LoRa,
-    o da de alta una con «Agregar dispositivo».</p>
+
+{% if fleet.total %}
+<div class="stats">
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("station") }}Dispositivos</span>
+    <span class="stat-value" data-count="{{ fleet.total }}">{{ fleet.total }}</span>
+    <span class="stat-meta">dados de alta en el panel</span>
+  </div>
+  <div class="stat reveal {{ 'is-hero' if fleet.online }}">
+    <span class="stat-label">{{ i.ico("activity") }}En línea</span>
+    <span class="stat-value {{ 'is-empty' if not fleet.online }}" data-count="{{ fleet.online }}">{{ fleet.online }}</span>
+    <span class="stat-meta">con uplink en las últimas 24 h</span>
+  </div>
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("cpu") }}Inferencia</span>
+    <span class="stat-value">{{ fleet.local }}<span class="unit">local</span></span>
+    <span class="stat-meta">{{ fleet.total - fleet.local }} en la nube (forward)</span>
+  </div>
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("clock") }}Última actividad</span>
+    <span class="stat-value {{ 'is-empty' if not fleet.last_uplink_at }}"
+          style="font-size: 1.15rem">{{ fleet.last_uplink_at | ago(now_s) }}</span>
+    <span class="stat-meta">uplink más reciente de la flota</span>
+  </div>
+</div>
 {% endif %}
-<div class="cards">
-  {% for st in stations %}
-  <a class="card station" href="{{ url_for('web.station', dev_eui=st.dev_eui) }}">
-    <div class="card-head">
-      <strong>{{ st.name or st.dev_eui }}</strong>
-      <span class="chip {{ 'ok' if st.last_uplink_at else '' }}">
-        {{ st.mode }}
-      </span>
+
+{% if not cards %}
+  <section class="card reveal">
+    <div class="empty">
+      {{ i.ico("station", "ico") }}
+      <strong>Sin estaciones todavía</strong>
+      <p>Aparecerán solas con su primer uplink LoRa, o puedes darlas de alta a mano
+        con «Agregar dispositivo».</p>
+      <a class="btn primary" href="{{ url_for('web.station_new') }}">{{ i.ico("plus") }}Agregar dispositivo</a>
     </div>
-    <dl>
-      <div><dt>DevEUI</dt><dd class="mono">{{ st.dev_eui }}</dd></div>
-      <div><dt>Último uplink</dt><dd>{{ st.last_uplink_at | dt(st.utc_offset_min) }}</dd></div>
-      <div><dt>Señal</dt>
-        <dd>{% if st.last_rssi is not none %}{{ st.last_rssi }} dBm / {{ st.last_snr }} dB{% else %}—{% endif %}</dd>
+  </section>
+{% endif %}
+
+<div class="cards">
+  {% for c in cards %}
+  {% set st = c.st %}
+  <a class="card station reveal" href="{{ url_for('web.station', dev_eui=st.dev_eui) }}">
+    <div class="card-head">
+      <span class="card-title">
+        <span class="pulse {{ '' if c.online else 'is-off' }}" aria-hidden="true"><i></i></span>
+        <strong>{{ st.name or st.dev_eui }}</strong>
+      </span>
+      <span class="chip {{ 'ok' if st.mode == 'local' }}">{{ st.mode }}</span>
+    </div>
+
+    {% if st.name and st.name != st.dev_eui %}
+      <span class="mono muted" style="margin-top: -0.5rem">{{ st.dev_eui }}</span>
+    {% endif %}
+
+    <div>
+      <div class="card-head" style="margin-bottom: 0.15rem">
+        <span class="stat-label">{{ i.ico("drop") }}HS30 · 30 cm</span>
+        <span class="muted small">{{ st.last_uplink_at | ago(now_s) }}</span>
       </div>
-      <div><dt>Posición</dt><dd>{{ '%.4f'|format(st.lat) }}, {{ '%.4f'|format(st.lon) }}</dd></div>
+      <div class="stat-value {{ 'is-empty' if c.hs30 is none }}" style="font-size: 1.5rem">
+        {% if c.hs30 is not none %}
+          {{ '%.3f'|format(c.hs30) }}<span class="unit">VWC</span>
+        {% else %}
+          Sin lecturas
+        {% endif %}
+      </div>
+      {% if c.spark %}
+        <svg class="spark" viewBox="0 0 {{ c.spark.width }} {{ c.spark.height }}"
+             preserveAspectRatio="none" role="img" aria-label="{{ c.spark.aria_label }}">
+          <polygon points="{{ c.spark.area }}" fill="var({{ c.spark.color }})" fill-opacity="0.1"></polygon>
+          <polyline class="spark-line" points="{{ c.spark.line }}"
+                    stroke="var({{ c.spark.color }})" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+      {% else %}
+        <div class="spark-empty">sin serie que dibujar</div>
+      {% endif %}
+    </div>
+
+    <dl>
+      <div><dt>Señal</dt>
+        <dd>{% if st.last_rssi is not none %}<span class="num">{{ st.last_rssi }}</span> dBm /
+              <span class="num">{{ st.last_snr }}</span> dB{% else %}—{% endif %}</dd></div>
+      <div><dt>Posición</dt><dd class="num">{{ '%.4f'|format(st.lat) }}, {{ '%.4f'|format(st.lon) }}</dd></div>
     </dl>
   </a>
   {% endfor %}

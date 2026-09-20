@@ -1,0 +1,253 @@
+/* Savia Cloud operator panel -- surfaces and figures: icons, cards, stat tiles,
+   fact lists, chips, notices and empty states. Nothing here knows which page it
+   is on; the interactive controls live in controls.css. */
+
+/* --- icons ----------------------------------------------------------------- */
+
+.ico {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ico-sm { width: 15px; height: 15px; }
+.ico-lg { width: 22px; height: 22px; stroke-width: 1.6; }
+
+/* --- cards ----------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 1.15rem 1.25rem;
+  margin-bottom: 1.15rem;
+  box-shadow: var(--sh-1);
+}
+.card:last-child { margin-bottom: 0; }
+.card.narrow { max-width: 440px; }
+.card.flush { padding: 1.15rem 0 0.35rem; }
+.card.flush > .card-head,
+.card.flush > .table-tools { padding-inline: 1.25rem; }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+.card-head h2 { margin: 0; }
+.card-head .head-note { font-size: 0.82rem; color: var(--muted); }
+.card-title { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+.card-title .ico { color: var(--muted); }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem; align-items: start; }
+.grid-side { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 1.15rem; align-items: start; }
+@media (max-width: 1040px) {
+  .grid-2, .grid-side { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- station / fleet cards -------------------------------------------------- */
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 1.05rem; }
+a.card.station {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  margin: 0;
+  transition: border-color var(--dur-2) var(--ease),
+              box-shadow var(--dur-2) var(--ease),
+              transform var(--dur-2) var(--ease);
+}
+a.card.station:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: var(--sh-2);
+  transform: translateY(-2px);
+}
+a.card.station:active { transform: translateY(0); }
+
+/* --- figures: stat tiles ---------------------------------------------------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.15rem;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 0.85rem 0.95rem 0.9rem;
+  box-shadow: var(--sh-1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.stat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 550;
+}
+.stat-label .ico { width: 14px; height: 14px; }
+.stat-value {
+  font-size: 1.72rem;
+  font-weight: 620;
+  line-height: 1.1;
+  letter-spacing: -0.028em;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.stat-value .unit {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.stat-value.is-empty { color: color-mix(in srgb, var(--muted) 62%, transparent); }
+/* Wraps rather than truncates: on a phone the tile is narrower than the caption,
+   and half a sentence is worse than two lines. */
+.stat-meta {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.stat .spark { margin-top: 0.15rem; }
+/* The one number a page leads with. */
+.stat.is-hero { background: linear-gradient(180deg, var(--ok-bg), var(--surface) 78%); }
+.stat.is-hero .stat-value { font-size: 2.1rem; color: var(--accent-deep); }
+
+/* --- fact list (was <dl>) --------------------------------------------------- */
+
+dl { margin: 0; }
+dl div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+dl div:last-child { border-bottom: none; }
+dl div:first-child { padding-top: 0; }
+dt { color: var(--muted); font-size: 0.86rem; }
+dd { margin: 0; text-align: right; min-width: 0; }
+
+/* --- chips ------------------------------------------------------------------ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.14rem 0.55rem;
+  border-radius: var(--r-pill);
+  font-size: 0.76rem;
+  font-weight: 550;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip.ok { background: var(--ok-bg); border-color: transparent; color: var(--accent-deep); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
+/* Downlink lifecycle */
+.st-scheduled { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.st-delivered { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.st-applied   { background: var(--ok-bg);   color: var(--accent-deep); border-color: transparent; }
+.st-failed    { background: var(--err-bg);  color: var(--error); border-color: transparent; }
+.st-dismissed { background: var(--idle-bg); color: var(--idle); border-color: transparent; }
+
+/* Message type */
+.chip-soil     { background: var(--ok-bg);   color: var(--accent-deep); border-color: transparent; }
+.chip-forecast { background: #eef1f8; color: #4a5b8c; border-color: transparent; }
+.chip-coords   { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.chip-cfg_ack  { background: #f0ecf8; color: #6b4fa1; border-color: transparent; }
+.chip-config   { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.chip-time_ta  { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.chip-boot     { background: #f3efe6; color: #7a6a3a; border-color: transparent; }
+.chip-ping     { background: #e6f4f1; color: #1f7a6b; border-color: transparent; }
+.chip-unknown  { background: var(--err-bg); color: var(--error); border-color: transparent; }
+
+/* Presence: a live station against one that stopped talking. */
+.pulse { position: relative; display: inline-flex; width: 8px; height: 8px; flex: none; }
+.pulse i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-ring 2s var(--ease-out) infinite;
+}
+.pulse.is-off i { background: var(--muted); }
+.pulse.is-off::after { display: none; }
+@keyframes pulse-ring {
+  0%   { opacity: 0.55; transform: scale(1); }
+  70%  { opacity: 0; transform: scale(2.6); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+/* --- notices ---------------------------------------------------------------- */
+
+.notice {
+  padding: 0.8rem 1rem;
+  border-radius: var(--r-md);
+  margin-bottom: 1.15rem;
+  font-size: 0.92rem;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+.notice-body { flex: 1; min-width: 0; }
+.notice > .ico { margin-top: 2px; }
+.notice-warn { background: var(--warn-bg); color: #7a5310; }
+.notice-error { background: var(--err-bg); color: var(--error); }
+.notice .muted { color: inherit; opacity: 0.75; }
+.notice-x {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  opacity: 0.55;
+  border-radius: var(--r-xs);
+}
+.notice-x:hover { opacity: 1; }
+
+/* --- empty states ------------------------------------------------------------ */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 2.4rem 1.2rem;
+  color: var(--muted);
+}
+.empty .ico { width: 30px; height: 30px; color: var(--line-strong); stroke-width: 1.4; }
+.empty strong { color: var(--ink); font-weight: 600; }
+.empty p { margin: 0; max-width: 42ch; font-size: 0.9rem; }

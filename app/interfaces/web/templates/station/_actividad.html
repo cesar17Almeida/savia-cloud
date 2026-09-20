@@ -1,0 +1,88 @@
+{% import "_icons.html" as i %}
+<div class="grid-2">
+  <section class="card flush">
+    <div class="card-head">
+      <div class="card-title">{{ i.ico("station") }}<h2>Uplinks recibidos</h2></div>
+      <div class="table-tools" style="margin: 0">
+        <span class="count-note" data-count-for="uplinks-table"></span>
+        <label class="search">
+          {{ i.ico("search") }}
+          <input type="search" placeholder="Filtrar…" data-search="uplinks-table"
+                 aria-label="Filtrar los uplinks">
+        </label>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="uplinks-table" data-table>
+        <thead><tr>
+          <th class="sortable" data-sort="text">Hora<span class="caret">↕</span></th>
+          <th class="sortable" data-sort="text">Tipo<span class="caret">↕</span></th>
+          <th>Detalle</th>
+          <th class="sortable num" data-sort="number">Señal<span class="caret">↕</span></th>
+          <th>Payload</th>
+        </tr></thead>
+        <tbody>
+        {% for u, summary in uplinks %}
+          <tr>
+            <td>{{ u.ts_s | dt(st.utc_offset_min) }}</td>
+            <td><span class="chip chip-{{ u.u_type }}">{{ u.u_type }}</span></td>
+            <td>{{ summary }}</td>
+            <td class="num">{% if u.rssi is not none %}{{ u.rssi }} / {{ u.snr }}{% else %}—{% endif %}</td>
+            <td class="mono payload" title="{{ u.payload_hex }}">{{ u.payload_hex[:24] }}{% if u.payload_hex|length > 24 %}…{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">
+            <div class="empty">
+              {{ i.ico("inbox") }}
+              <strong>Todavía no ha llegado ningún uplink</strong>
+              <p>La estación aparecerá aquí con su primera trama.</p>
+            </div>
+          </td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card flush">
+    <div class="card-head">
+      <div class="card-title">{{ i.ico("sync") }}<h2>Downlinks enviados</h2></div>
+      <div class="table-tools" style="margin: 0">
+        <span class="count-note" data-count-for="downlinks-table"></span>
+        <label class="search">
+          {{ i.ico("search") }}
+          <input type="search" placeholder="Filtrar…" data-search="downlinks-table"
+                 aria-label="Filtrar los downlinks">
+        </label>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="downlinks-table" data-table>
+        <thead><tr>
+          <th class="sortable" data-sort="text">Hora<span class="caret">↕</span></th>
+          <th class="sortable" data-sort="text">Tipo<span class="caret">↕</span></th>
+          <th class="sortable" data-sort="text">Estado<span class="caret">↕</span></th>
+          <th>Payload</th>
+        </tr></thead>
+        <tbody>
+        {% for d in downlinks %}
+          <tr>
+            <td>{{ d.ts_s | dt(st.utc_offset_min) }}</td>
+            <td><span class="chip chip-{{ d.kind }}">{{ d.kind }}</span></td>
+            <td><span class="chip st-{{ d.status | dl_state }}" title="{{ d.status }}">{{ d.status | dl_label }}</span></td>
+            <td class="mono payload" title="{{ d.payload_hex }}">{{ d.payload_hex[:24] }}{% if d.payload_hex|length > 24 %}…{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">
+            <div class="empty">
+              {{ i.ico("inbox") }}
+              <strong>Sin downlinks todavía</strong>
+              <p>Los envíos de hora, temperatura y configuración se listarán aquí.</p>
+            </div>
+          </td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

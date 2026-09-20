@@ -1,8 +1,14 @@
 {% extends "base.html" %}
+{% import "_icons.html" as i %}
 {% block title %}Agregar dispositivo — Savia Cloud{% endblock %}
 {% block content %}
-<h1>Agregar dispositivo</h1>
-<section class="card narrow-form">
+<div class="page-head">
+  <div class="titles">
+    <h1>Agregar dispositivo</h1>
+    <p class="sub">Regístralo en el panel y, si aportas sus claves, también en TTN.</p>
+  </div>
+</div>
+<section class="card narrow-form reveal">
   <form method="post">
     <p class="form-legend muted small"><span class="req">*</span> Campo obligatorio; el resto es opcional.</p>
     <h2>Identidad</h2>
@@ -49,7 +55,7 @@
 
     <div class="form-actions">
       <a class="btn ghost" href="{{ url_for('web.dashboard') }}">Cancelar</a>
-      <button type="submit" class="primary">Dar de alta</button>
+      <button type="submit" class="primary">{{ i.ico("plus") }}Dar de alta</button>
     </div>
   </form>
 </section>
