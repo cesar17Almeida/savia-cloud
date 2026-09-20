@@ -173,6 +173,34 @@ def test_pending_config_flagged_until_the_station_acks(client, ttn_capture):
     assert "confirmada por la estación" in html
 
 
+def test_dismissing_the_config_notice_keeps_the_log_row(client, ttn_capture):
+    """The operator puts the banner away; the downlink log keeps the row and what it
+    said, so the station page stops shouting but the history stays readable."""
+    _post_uplink(client, _soil_frame(1_782_000_000))
+    _login(client)
+    client.post("/home/stations/savia/config",
+                data={"lora_period_s": "600", "tab": "ajustes"})
+    assert "pendiente de confirmación" in client.get("/home/stations/savia").get_data(as_text=True)
+
+    resp = client.post("/home/stations/savia/config-state/dismiss",
+                       data={"tab": "ajustes"}, follow_redirects=True)
+    html = resp.get_data(as_text=True)
+    assert "pendiente de confirmación" not in html
+    assert "Aviso descartado" in html
+
+    svc = client.application.config["SERVICES"]
+    dl = svc.panel.downlinks("savia", limit=1)[0]
+    assert dl.kind == "config" and dl.state == "dismissed"   # row kept, not deleted
+    # The summary tab keeps saying what really happened to that config.
+    resumen = client.get("/home/stations/savia").get_data(as_text=True)
+    assert "aviso descartado" in resumen and "pendiente de confirmación" not in resumen
+
+    # Nothing left to dismiss: the panel says so instead of pretending it worked.
+    resp = client.post("/home/stations/savia/config-state/dismiss",
+                       data={"tab": "ajustes"}, follow_redirects=True)
+    assert "No hay ningún aviso" in resp.get_data(as_text=True)
+
+
 def test_station_without_config_is_not_reported_as_confirmed(client):
     """A station that never received a config must not read as confirmed."""
     _post_uplink(client, _soil_frame(1_782_000_000))

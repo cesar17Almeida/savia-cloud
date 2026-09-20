@@ -10,6 +10,7 @@ from ..adapters.ttn import codec
 from ..domain.models import (
     DL_APPLIED,
     DL_DELIVERED,
+    DL_DISMISSED,
     DL_FAILED,
     DL_QUEUED,
     DownlinkCommand,
@@ -654,6 +655,18 @@ class PanelService:
         for d in self._downlinks.list_recent(dev_eui, 1, kind="config"):
             return {"state": d.state, "ts_s": d.ts_s, "detail": d.status}
         return None
+
+    def dismiss_config_notice(self, dev_eui: str) -> bool:
+        """Put away the config banner of the newest config downlink. The row keeps its
+        detail under a `dismissed` token, so the log still says what happened; only an
+        unresolved notice (queued, delivered or failed) can be dismissed."""
+        for d in self._downlinks.list_recent(dev_eui, 1, kind="config"):
+            if d.id is None or d.state not in (DL_QUEUED, DL_DELIVERED, DL_FAILED):
+                return False
+            _, _, rest = d.status.partition(":")
+            return self._downlinks.set_status(
+                d.id, f"{DL_DISMISSED}: {rest.strip() or d.state}")
+        return False
 
     def update_station(self, dev_eui: str, patch: dict) -> Station:
         st = self.station(dev_eui)

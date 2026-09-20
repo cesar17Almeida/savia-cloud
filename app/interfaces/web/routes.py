@@ -37,6 +37,7 @@ from ...application.services import DEFAULT_ADMIN_PASSWORD, Services
 from ...domain.models import (
     DL_APPLIED,
     DL_DELIVERED,
+    DL_DISMISSED,
     DL_FAILED,
     DL_QUEUED,
     DownlinkRecord,
@@ -117,7 +118,8 @@ def _gate():
 
 # Downlink lifecycle as shown in the panel.
 _DL_LABEL = {DL_QUEUED: "en cola", DL_DELIVERED: "entregado a la estación",
-             DL_APPLIED: "aplicada", DL_FAILED: "no enviada"}
+             DL_APPLIED: "aplicada", DL_FAILED: "no enviada",
+             DL_DISMISSED: "no enviada (aviso descartado)"}
 
 
 @bp.app_template_filter("dl_state")
@@ -581,6 +583,17 @@ def station_downlink(dev_eui: str):
         flash(f"Sincronización hora+TA encolada ({len(cmd.payload)} B)", "ok")
     except Exception as e:   # Open-Meteo/TTN failures surface as flash, not 500
         flash(f"No se pudo encolar: {_human(e)}", "error")
+    return redirect(_station_url(dev_eui, request.form.get("tab")))
+
+
+@bp.post("/stations/<dev_eui>/config-state/dismiss")
+def station_config_dismiss(dev_eui: str):
+    """Put away the configuration notice. The downlink log keeps the row and its
+    detail; what goes is the banner sitting on top of the station page."""
+    if _services().panel.dismiss_config_notice(dev_eui):
+        flash("Aviso descartado; queda en el registro de downlinks", "ok")
+    else:
+        flash("No hay ningún aviso de configuración que descartar", "error")
     return redirect(_station_url(dev_eui, request.form.get("tab")))
 
 

@@ -81,6 +81,9 @@ DL_QUEUED = "scheduled"    # accepted by the TTN queue, not yet heard by the nod
 DL_DELIVERED = "delivered"  # handed to the station in its RX window (HTTP link only)
 DL_APPLIED = "applied"     # the node answered with CFG_ACK
 DL_FAILED = "failed"       # the push to TTN itself failed; nothing left the cloud
+# The operator read the notice and put it away. Terminal like the two above, and it
+# keeps the detail it had, so the log still says what happened -- only the banner goes.
+DL_DISMISSED = "dismissed"
 
 
 @dataclass(frozen=True)

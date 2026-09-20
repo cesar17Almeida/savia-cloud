@@ -134,16 +134,25 @@ dd { margin: 0; text-align: right; }
 .notice {
   padding: 0.75rem 0.95rem; border-radius: 12px; margin-bottom: 1.2rem;
   font-size: 0.94em; border: 1px solid transparent;
+  display: flex; align-items: flex-start; gap: 0.6rem;
 }
+.notice-body { flex: 1; }
 .notice-warn { background: #faf1e4; color: #7a5310; }
 .notice-error { background: var(--err-bg); color: var(--error); }
 .notice .muted { color: inherit; opacity: 0.75; }
+/* Put the notice away: the row stays in the downlink log, the banner does not. */
+.notice-x {
+  border: none; background: none; color: inherit; cursor: pointer;
+  font-size: 1.15rem; line-height: 1; padding: 0 0.2rem; opacity: 0.55;
+}
+.notice-x:hover { opacity: 1; }
 
 /* Downlink lifecycle */
 .st-scheduled { background: #faf1e4; color: #9a6b1f; border-color: transparent; }
 .st-delivered { background: #e9f2f7; color: #2f6d8c; border-color: transparent; }
 .st-applied   { background: var(--ok-bg); color: var(--accent); border-color: transparent; }
 .st-failed    { background: var(--err-bg); color: var(--error); border-color: transparent; }
+.st-dismissed { background: #eef0f2; color: #5b6570; border-color: transparent; }
 
 /* Tables */
 .table-wrap { overflow-x: auto; margin: 0 -0.4rem; }

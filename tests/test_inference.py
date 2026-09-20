@@ -78,6 +78,9 @@ class _Log(DownlinkLogRepository):
     def confirm_oldest_queued(self, dev_eui, kind, status):  # unused here
         return False
 
+    def set_status(self, row_id, status):  # unused here
+        return False
+
     def mark_delivered(self, dev_eui, payload_hex, status):  # unused here
         return False
 

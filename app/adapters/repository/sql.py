@@ -232,6 +232,15 @@ class SqlDownlinkLogRepository(DownlinkLogRepository):
             s.commit()
             return True
 
+    def set_status(self, row_id: int, status: str) -> bool:
+        with self._sm() as s:
+            row = s.get(orm.DownlinkLogRow, row_id)
+            if row is None:
+                return False
+            row.status = status
+            s.commit()
+            return True
+
     def mark_delivered(self, dev_eui: str, payload_hex: str, status: str) -> bool:
         with self._sm() as s:
             row = s.scalars(

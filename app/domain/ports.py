@@ -141,6 +141,11 @@ class DownlinkLogRepository(ABC):
         ...
 
     @abstractmethod
+    def set_status(self, row_id: int, status: str) -> bool:
+        """Replace one logged downlink's status. False when the row is gone."""
+        ...
+
+    @abstractmethod
     def mark_delivered(self, dev_eui: str, payload_hex: str, status: str) -> bool:
         """Move the OLDEST queued downlink carrying that payload to `status`. False
         when no queued row matches."""

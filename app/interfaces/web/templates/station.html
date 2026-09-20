@@ -87,6 +87,7 @@
 
 {% if config_state and config_state.state in ('scheduled', 'delivered', 'failed') %}
 <div class="notice notice-{{ 'error' if config_state.state == 'failed' else 'warn' }}">
+  <div class="notice-body">
   {% if config_state.state == 'failed' %}
     <strong>La configuración no salió del backend.</strong>
     El envío a TTN falló el {{ config_state.ts_s | dt(st.utc_offset_min) }}, así que la
@@ -103,6 +104,14 @@
     próxima ventana RX de la estación; hasta que responda con CFG_ACK, lo guardado aquí
     puede no coincidir con lo que ejecuta el nodo.
   {% endif %}
+  </div>
+  {# The row stays in the downlink log with its detail; only the banner goes. #}
+  <form method="post" class="inline"
+        action="{{ url_for('web.station_config_dismiss', dev_eui=st.dev_eui) }}">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <button type="submit" class="notice-x" title="Descartar aviso"
+            aria-label="Descartar aviso">&times;</button>
+  </form>
 </div>
 {% endif %}
 
