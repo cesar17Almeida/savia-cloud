@@ -51,7 +51,12 @@ class Settings:
     replay_utc_offset_min: int = 120
     # Station link: "ttn" (LoRaWAN through The Things Stack) or "http" (the phone
     # tunnels the same wire-v2 frames: POST /link/uplink, downlinks from an outbox).
-    link_mode: str = "ttn"
+    #
+    # VIDEO BRANCH: "http" by default here, so deploying this branch is the whole
+    # setup -- no server environment to remember. The station's radio has no network
+    # yet, so the phone carries the same frames over HTTP and the downlinks wait in
+    # the outbox for it. On `main` this default is "ttn", which is what production is.
+    link_mode: str = "http"
     # X-Link-Token expected on POST /link/uplink (empty = auth disabled).
     link_secret: str = ""
 

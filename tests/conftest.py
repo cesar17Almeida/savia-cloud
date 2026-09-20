@@ -46,6 +46,10 @@ def settings():
         default_lon=-0.38,
         admin_password=ADMIN_PASSWORD,  # seeded operator, past the forced change
         allow_registration=True,        # the API tests self-register users
+        # Pinned rather than inherited: these tests exercise the TTN path, and the
+        # branch they run on must not decide that for them (test_link asks for "http"
+        # explicitly, the way a test that means the tunnel should).
+        link_mode="ttn",
     )
 
 

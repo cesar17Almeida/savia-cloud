@@ -2,7 +2,10 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [main]
+    # demo-video deploys too: it is the branch filmed for the design review, and it
+    # carries its own settings. One server, so the last branch pushed is the one
+    # running -- push main to put production back.
+    branches: [main, demo-video]
   workflow_dispatch:
 
 concurrency:
