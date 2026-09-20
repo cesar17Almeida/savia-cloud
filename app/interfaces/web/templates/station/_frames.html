@@ -1,3 +1,4 @@
+{% import "_ta_strip.html" as strip %}
 {# One frame of the live timeline. live.js builds this same markup for new rows,
    so any change here has a mirror in buildRow(). #}
 {% macro frame_row(r, offset_min) %}
@@ -12,26 +13,7 @@
         <time class="tl-time" data-ts="{{ r.at_s }}">{{ r.at_s | clock(offset_min) }}</time>
       </div>
       <div class="tl-summary">{{ r.summary }}</div>
-      {% if r.ta %}
-        {% set span = (r.ta.max - r.ta.min) or 1 %}
-        <div class="ta-strip">
-          <div class="ta-bars" role="img"
-               aria-label="Temperatura del aire: {{ r.ta.past|length }} h anteriores y {{ r.ta.future|length }} h de previsión, de {{ r.ta.min }} a {{ r.ta.max }} °C">
-            <div class="ta-seg ta-past" style="flex: {{ r.ta.past|length }}">
-              {% for v in r.ta.past %}<i style="height: {{ ((v - r.ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
-            </div>
-            <div class="ta-seg ta-future" style="flex: {{ r.ta.future|length }}">
-              {% for v in r.ta.future %}<i style="height: {{ ((v - r.ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
-            </div>
-          </div>
-          <div class="ta-axis">
-            <span style="flex: {{ r.ta.past|length }}">{{ r.ta.past|length }} h anteriores</span>
-            <span style="flex: {{ r.ta.future|length }}">{{ r.ta.future|length }} h de previsión</span>
-          </div>
-          <div class="ta-cap">Temperatura del aire · Open-Meteo
-            <span class="ta-range">mín {{ r.ta.min }} °C · máx {{ r.ta.max }} °C</span></div>
-        </div>
-      {% endif %}
+      {% if r.ta %}{{ strip.ta_strip(r.ta) }}{% endif %}
       <div class="tl-hex mono" title="{{ r.payload_hex }}">{{ r.payload_hex | hex_bytes }}</div>
     </div>
   </li>

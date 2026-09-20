@@ -36,6 +36,7 @@ from ...application.errors import (
 from ...application.services import DEFAULT_ADMIN_PASSWORD, Services
 from ...domain.models import (
     DL_APPLIED,
+    DL_CANCELLED,
     DL_DELIVERED,
     DL_DISMISSED,
     DL_FAILED,
@@ -45,7 +46,14 @@ from ...domain.models import (
     UplinkRecord,
 )
 from .charts import build_soil_chart, forecast_payload, readings_payload
-from .view import fleet_cards, fleet_summary, is_online, latest_values
+from .view import (
+    decode_downlink,
+    fleet_cards,
+    fleet_summary,
+    is_online,
+    latest_values,
+    queue_view,
+)
 
 bp = Blueprint("web", __name__, url_prefix="/home",
                template_folder="templates", static_folder="static")
@@ -107,7 +115,13 @@ def _nav():
     """Sidebar highlight (every station page lives under 'Estaciones') plus the
     one fleet-wide fact the chrome states: which transport the stations use."""
     endpoint = (request.endpoint or "").removeprefix("web.")
-    return {"nav_active": "password" if endpoint == "password" else "stations",
+    if endpoint == "password":
+        active = "password"
+    elif endpoint.startswith("queue"):
+        active = "queue"
+    else:
+        active = "stations"
+    return {"nav_active": active,
             "link_mode": current_app.config["SETTINGS"].link_mode}
 
 
@@ -138,7 +152,8 @@ def _gate():
 # Downlink lifecycle as shown in the panel.
 _DL_LABEL = {DL_QUEUED: "en cola", DL_DELIVERED: "entregado a la estación",
              DL_APPLIED: "aplicada", DL_FAILED: "no enviada",
-             DL_DISMISSED: "no enviada (aviso descartado)"}
+             DL_DISMISSED: "no enviada (aviso descartado)",
+             DL_CANCELLED: "cancelada antes de salir"}
 
 
 @bp.app_template_filter("dl_state")
@@ -180,6 +195,9 @@ def _panel_error(e):
         return e
     current_app.logger.exception("panel error on %s %s", request.method, request.path)
     flash(_human(e), "error")
+    endpoint = (request.endpoint or "").removeprefix("web.")
+    if endpoint.startswith("queue"):
+        return redirect(url_for("web.queue"))
     dev_eui = (request.view_args or {}).get("dev_eui")
     if request.method == "POST" and dev_eui:
         return redirect(_station_url(dev_eui, request.form.get("tab")))
@@ -248,24 +266,8 @@ def _hex_bytes(payload_hex: str) -> str:
 
 def _dl_summary(kind: str, payload: bytes) -> tuple[str, dict | None]:
     """Human one-liner for a logged downlink + its TA window when it carries one."""
-    try:
-        if kind == "time_ta":
-            d = codec.decode_downlink_time_ta(payload)
-            clock = d["clock_epoch_s"]
-            hour = time.strftime("%H:%M:%S", time.gmtime(clock)) + " UTC" if clock else "sin hora"
-            past, future = d["past_ta"], d["future_ta"]
-            if not past and not future:
-                return f"sincronización de hora · {hour}", None
-            both = past + future
-            return (f"hora {hour} + temperatura del aire: {len(past)} h anteriores "
-                    f"y {len(future)} h de previsión",
-                    {"past": past, "future": future, "min": min(both), "max": max(both)})
-        if kind == "config":
-            fields = codec.decode_config_patch_tlv(payload)
-            return "configuración: " + ", ".join(f"{k} = {v}" for k, v in fields.items()), None
-    except ValueError:
-        pass
-    return "no decodificable", None
+    d = decode_downlink(kind, payload)
+    return d["summary"], d["ta"]
 
 
 def _live_uplink(u: UplinkRecord) -> dict:
@@ -435,6 +437,65 @@ def dashboard():
     cards = fleet_cards(_services().panel, now_s)
     return render_template("dashboard.html", cards=cards,
                            fleet=fleet_summary(cards), now_s=now_s)
+
+
+# --- send queue ---------------------------------------------------------------
+# Only the HTTP link has a queue the backend owns. Over TTN the frames sit in the
+# Things Stack queue, so the page states that instead of offering controls that
+# would not reach them.
+
+@bp.get("/queue")
+def queue():
+    now_s = int(time.time())
+    svc = _services().link_queue
+    return render_template("queue.html", now_s=now_s,
+                           view=queue_view(svc, now_s) if svc else None)
+
+
+def _queue_service():
+    """The queue service, or None with the reason already flashed."""
+    svc = _services().link_queue
+    if svc is None:
+        flash("Con el enlace por TTN la cola la gobierna The Things Stack: "
+              "el backend no puede retenerla ni cancelarla", "error")
+    return svc
+
+
+@bp.post("/queue/<dev_eui>/pause")
+def queue_pause(dev_eui: str):
+    """Hold or release one station's queue. Held, its frames keep their place and
+    keep accumulating; nothing leaves until the operator resumes it."""
+    svc = _queue_service()
+    if svc is None:
+        return redirect(url_for("web.queue"))
+    paused = request.form.get("paused") == "1"
+    try:
+        st = svc.set_paused(dev_eui, paused, int(time.time()))
+    except NotFound:
+        flash(f"No existe ninguna estación «{dev_eui}»", "error")
+        return redirect(url_for("web.queue"))
+    name = st.name or st.dev_eui
+    flash(f"Cola de {name} retenida: no saldrá nada hasta que la reanudes" if paused
+          else f"Cola de {name} reanudada: el próximo uplink se llevará "
+               "el paquete más antiguo", "ok")
+    return redirect(url_for("web.queue"))
+
+
+@bp.post("/queue/<int:item_id>/cancel")
+def queue_cancel(item_id: int):
+    """Pull one frame out before the station ever hears it. The queue entry goes;
+    the downlink log keeps the row, marked cancelled."""
+    svc = _queue_service()
+    if svc is None:
+        return redirect(url_for("web.queue"))
+    gone = svc.cancel(item_id)
+    if gone is None:
+        flash("Ese paquete ya no estaba en la cola: o se entregó en una ventana RX "
+              "o alguien lo canceló antes", "error")
+    else:
+        flash(f"Paquete cancelado ({len(gone.payload_hex) // 2} B). Queda en el "
+              "registro de downlinks como cancelado", "ok")
+    return redirect(url_for("web.queue"))
 
 
 @bp.route("/stations/new", methods=["GET", "POST"])

@@ -131,6 +131,13 @@ button:active, a.btn:active { transform: translateY(1px); }
 .btn.ghost, button.ghost { border-color: transparent; background: none; color: var(--muted); }
 .btn.ghost:hover, button.ghost:hover { background: var(--bg); color: var(--ink); box-shadow: none; }
 .btn.small, button.small { padding: 0.34rem 0.65rem; font-size: 0.82rem; }
+/* Withdrawing a queued frame: the one control here that takes something away. */
+.btn.danger, button.danger { color: var(--error); }
+.btn.danger:hover, button.danger:hover {
+  background: var(--err-bg);
+  border-color: color-mix(in srgb, var(--error) 45%, var(--line));
+  color: var(--error);
+}
 .btn.icon, button.icon { padding: 0.45rem; width: 34px; }
 
 /* Segmented control: the range picker above a chart. */

@@ -193,6 +193,93 @@
 .onboard-label { line-height: 1.35; font-size: 0.86rem; }
 .onboard.is-changed .onboard-value { animation: lb-pop 0.4s ease-out; }
 
+/* --- send queue --------------------------------------------------------------
+   What the HTTP link still has to hand over. One group per station, frames in the
+   order they will leave, each one opening onto what it actually carries. */
+
+.lb-link {
+  font-size: 0.76rem;
+  color: inherit;
+  opacity: 0.85;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.lb-link:hover { opacity: 1; }
+a.chip { text-decoration: none; }
+a.chip:hover { filter: brightness(0.96); }
+
+.q-station { font-weight: 620; color: var(--ink); text-decoration: none; }
+a.q-station:hover { color: var(--accent-deep); text-decoration: underline; }
+.q-head-end { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.q-note {
+  margin: 0 0 0.6rem;
+  padding: 0 1.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.q-list { list-style: none; margin: 0; padding: 0; }
+.q-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0 1.25rem 0 0.75rem;
+  border-top: 1px solid var(--line-soft);
+  transition: background var(--dur-1) linear;
+}
+.q-item:hover { background: color-mix(in srgb, var(--sunken) 80%, transparent); }
+.q-item > details { flex: 1; min-width: 0; }
+.q-item > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 0;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--r-sm);
+}
+.q-item > details > summary::-webkit-details-marker { display: none; }
+.q-caret { display: inline-flex; color: var(--muted); transition: transform var(--dur-2) var(--ease); }
+.q-item > details[open] > summary .q-caret { transform: rotate(90deg); }
+.q-order {
+  flex: none;
+  min-width: 1.4em;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.q-summary { flex: 1; min-width: 12ch; font-size: 0.9rem; }
+.q-bytes, .q-when {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.q-detail {
+  padding: 0.2rem 0 0.9rem 2rem;
+  animation: reveal var(--dur-2) var(--ease-out);
+}
+.q-detail dl { max-width: 460px; }
+.q-fields { margin-top: 0.7rem; max-width: 460px; }
+.q-hex {
+  margin-top: 0.7rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-cancel { padding-top: 0.6rem; }
+
+@media (max-width: 760px) {
+  .q-item { padding-inline: 0.9rem; flex-wrap: wrap; }
+  .q-detail { padding-left: 0; }
+  .q-cancel { padding-bottom: 0.7rem; }
+}
+
 /* --- charts: shared chrome --------------------------------------------------- */
 
 .viz-legend {

@@ -8,6 +8,7 @@ from .models import (
     DownlinkRecord,
     Forecast,
     ForecastRun,
+    QueuedDownlink,
     Session,
     SoilReading,
     Station,
@@ -160,7 +161,8 @@ class LinkOutboxRepository(ABC):
 
     @abstractmethod
     def take_next(self, dev_id: str, now_s: int) -> DownlinkCommand | None:
-        """Oldest undelivered downlink of that device, marked delivered; None if empty."""
+        """Oldest undelivered downlink of that device, marked delivered; None if
+        empty OR while the device is paused -- a held queue hands out nothing."""
         ...
 
     @abstractmethod
@@ -171,6 +173,27 @@ class LinkOutboxRepository(ABC):
     @abstractmethod
     def deliveries(self, dev_id: str, limit: int) -> dict[str, int]:
         """payload_hex -> delivered_s of the latest delivered downlinks."""
+        ...
+
+    @abstractmethod
+    def list_pending(self, dev_id: str | None = None) -> list[QueuedDownlink]:
+        """Everything still waiting, oldest first; the whole fleet when dev_id is None."""
+        ...
+
+    @abstractmethod
+    def remove(self, item_id: int) -> QueuedDownlink | None:
+        """Drop one undelivered entry from the queue and return what it was, so the
+        caller can close its logged row. None when it is gone or already delivered."""
+        ...
+
+    @abstractmethod
+    def set_paused(self, dev_id: str, paused: bool, now_s: int) -> None:
+        """Hold or release that device's queue."""
+        ...
+
+    @abstractmethod
+    def paused(self) -> dict[str, int]:
+        """dev_id -> the instant its queue was held, for every held device."""
         ...
 
 

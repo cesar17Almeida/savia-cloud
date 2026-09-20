@@ -1,0 +1,23 @@
+{# The TA window a TIME_TA frame carries: 48 h behind + 24 h ahead, one bar per
+   hour. Drawn wherever such a frame is shown -- the live timeline and the queue.
+   live.js builds the same markup in taStrip(). #}
+{% macro ta_strip(ta) %}
+  {% set span = (ta.max - ta.min) or 1 %}
+  <div class="ta-strip">
+    <div class="ta-bars" role="img"
+         aria-label="Temperatura del aire: {{ ta.past|length }} h anteriores y {{ ta.future|length }} h de previsión, de {{ ta.min }} a {{ ta.max }} °C">
+      <div class="ta-seg ta-past" style="flex: {{ ta.past|length }}">
+        {% for v in ta.past %}<i style="height: {{ ((v - ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
+      </div>
+      <div class="ta-seg ta-future" style="flex: {{ ta.future|length }}">
+        {% for v in ta.future %}<i style="height: {{ ((v - ta.min) / span * 82 + 18) | round(1) }}%"></i>{% endfor %}
+      </div>
+    </div>
+    <div class="ta-axis">
+      <span style="flex: {{ ta.past|length }}">{{ ta.past|length }} h anteriores</span>
+      <span style="flex: {{ ta.future|length }}">{{ ta.future|length }} h de previsión</span>
+    </div>
+    <div class="ta-cap">Temperatura del aire · Open-Meteo
+      <span class="ta-range">mín {{ ta.min }} °C · máx {{ ta.max }} °C</span></div>
+  </div>
+{% endmacro %}

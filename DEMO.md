@@ -66,6 +66,11 @@ cruce las 10:00**, porque la ventana saltaría de la fila 81 a la 58.
    temperaturas dibujadas (48 h anteriores + 24 h de previsión).
 4. En el siguiente uplink (≤ 15 s) la estación recoge el paquete: el aviso pasa a
    **«Paquete entregado a la estación»** y la trama a *entregado a la estación*.
+   Mientras espera, **Cola de envíos** (menú lateral, o el enlace del propio aviso)
+   lista lo que falta por entregar, deja abrir cada trama para ver qué lleva, y
+   permite **retener** la cola de una estación o **cancelar** un paquete concreto.
+   Retener es útil para grabar la espera sin que el plano se corte; cancelar saca la
+   trama de la cola y la deja en el registro de downlinks como *cancelada*.
 5. La estación infiere a bordo y su siguiente `forecast` trae el resultado: el aviso
    muestra **«La estación ha ejecutado el modelo · HS30 mínimo previsto 0,742»** y el
    valor queda fijo en la tarjeta **Última inferencia**.

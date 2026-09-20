@@ -28,6 +28,9 @@
       <a class="nav-item {{ 'is-active' if nav_active == 'stations' }}"
          href="{{ url_for('web.dashboard') }}"
          {{ 'aria-current=page' if nav_active == 'stations' }}>{{ i.ico("station") }}Estaciones</a>
+      <a class="nav-item {{ 'is-active' if nav_active == 'queue' }}"
+         href="{{ url_for('web.queue') }}"
+         {{ 'aria-current=page' if nav_active == 'queue' }}>{{ i.ico("sync") }}Cola de envíos</a>
       <a class="nav-item {{ 'is-active' if nav_active == 'password' }}"
          href="{{ url_for('web.password') }}"
          {{ 'aria-current=page' if nav_active == 'password' }}>{{ i.ico("key") }}Contraseña</a>

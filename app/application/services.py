@@ -9,6 +9,7 @@ from typing import Callable
 from ..adapters.ttn import codec
 from ..domain.models import (
     DL_APPLIED,
+    DL_CANCELLED,
     DL_DELIVERED,
     DL_DISMISSED,
     DL_FAILED,
@@ -17,6 +18,7 @@ from ..domain.models import (
     DownlinkRecord,
     Forecast,
     ForecastRun,
+    QueuedDownlink,
     Session,
     SoilReading,
     Station,
@@ -609,6 +611,52 @@ class DailyCronService:
         return report
 
 
+class LinkQueueService:
+    """Operator control over the HTTP-link outbox: what is still waiting, holding a
+    station's queue, and pulling one frame out before the station ever hears it.
+
+    Only the HTTP link has a queue the backend owns. Over TTN the frames live in
+    the Things Stack queue, so this service is simply not wired (see create_app).
+    """
+
+    def __init__(self, outbox: LinkOutboxRepository, downlinks: DownlinkLogRepository,
+                 stations: StationRepository):
+        self._outbox = outbox
+        self._downlinks = downlinks
+        self._stations = stations
+
+    def pending(self, dev_eui: str | None = None) -> list[QueuedDownlink]:
+        """Everything still queued, oldest first; the whole fleet when dev_eui is None."""
+        return self._outbox.list_pending(dev_eui)
+
+    def paused(self) -> dict[str, int]:
+        return self._outbox.paused()
+
+    def stations(self) -> list[Station]:
+        return self._stations.list_all()
+
+    def set_paused(self, dev_eui: str, paused: bool, now_s: int) -> Station:
+        """Hold or release one station's queue. The station must exist, so a typo in
+        the URL cannot create a hold nobody can find again."""
+        st = self._stations.get(dev_eui)
+        if st is None:
+            raise NotFound(dev_eui)
+        self._outbox.set_paused(dev_eui, paused, now_s)
+        return st
+
+    def cancel(self, item_id: int) -> QueuedDownlink | None:
+        """Pull one frame out of the queue. The entry goes and the logged downlink
+        moves to `cancelled`, so the history still says the frame existed and why it
+        never left. None when it was already delivered or is no longer there."""
+        gone = self._outbox.remove(item_id)
+        if gone is None:
+            return None
+        self._downlinks.mark_delivered(
+            gone.dev_id, gone.payload_hex,
+            f"{DL_CANCELLED}: retirado de la cola por el operador")
+        return gone
+
+
 class PanelService:
     """Operator-console queries: every station, its traffic and stored data.
     Unlike StationService this is NOT owner-scoped -- the web panel authenticates
@@ -724,3 +772,4 @@ class Services:
     # HTTP link only (LINK_MODE=http); None when the stations talk through TTN.
     link_uplink: LinkUplinkService | None = None
     link_outbox: LinkOutboxRepository | None = None
+    link_queue: LinkQueueService | None = None

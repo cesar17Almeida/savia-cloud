@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% import "_icons.html" as i %}
+{% import "_ta_strip.html" as strip %}
+{% block title %}Cola de envíos — Savia Cloud{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Cola de envíos</h1>
+    <p class="sub">
+      {% if view is none %}
+        La cola vive en The Things Stack, no en el backend
+      {% elif view.total %}
+        {{ view.total }} paquete{{ '' if view.total == 1 else 's' }} esperando su ventana de recepción
+        <span aria-hidden="true">·</span>
+        el más antiguo {{ view.oldest_s | ago(now_s) }}
+      {% else %}
+        No hay nada esperando
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{% if view is none %}
+  {# LINK_MODE=ttn: the frames were handed to The Things Stack the moment they were
+     scheduled, so nothing here could hold or withdraw them. #}
+  <div class="notice notice-warn">
+    {{ i.ico("alert") }}
+    <div class="notice-body">
+      <strong>Esta estación habla por TTN.</strong>
+      Los paquetes se entregan a The Things Stack en cuanto se programan y es su cola
+      la que los guarda hasta la próxima ventana de recepción, así que el backend no
+      puede retenerlos ni cancelarlos desde aquí. Lo enviado y su estado se siguen en
+      <em>Actividad LoRa</em> de cada estación.
+    </div>
+  </div>
+{% else %}
+
+<div class="stats">
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("sync") }}En cola</span>
+    <span class="stat-value {{ 'is-empty' if not view.total }}" data-count="{{ view.total }}">{{ view.total }}</span>
+    <span class="stat-meta">paquetes sin entregar</span>
+  </div>
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("station") }}Estaciones con cola</span>
+    <span class="stat-value {{ 'is-empty' if not view.stations_waiting }}"
+          data-count="{{ view.stations_waiting }}">{{ view.stations_waiting }}</span>
+    <span class="stat-meta">esperan su ventana de recepción</span>
+  </div>
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("clock") }}Retenidas</span>
+    <span class="stat-value {{ 'is-empty' if not view.paused_count }}"
+          data-count="{{ view.paused_count }}">{{ view.paused_count }}</span>
+    <span class="stat-meta">no entregan nada hasta reanudar</span>
+  </div>
+  <div class="stat reveal">
+    <span class="stat-label">{{ i.ico("activity") }}Espera más larga</span>
+    <span class="stat-value {{ 'is-empty' if not view.oldest_s }}"
+          style="font-size: 1.15rem">{{ view.oldest_s | ago(now_s) }}</span>
+    <span class="stat-meta">desde que se encoló el más antiguo</span>
+  </div>
+</div>
+
+{% if not view.groups %}
+  <section class="card reveal">
+    <div class="empty">
+      {{ i.ico("inbox") }}
+      <strong>La cola está vacía</strong>
+      <p>Cuando programes una sincronización de hora o un parche de configuración,
+        el paquete aparecerá aquí hasta que la estación abra su ventana de recepción.</p>
+    </div>
+  </section>
+{% endif %}
+
+{% for g in view.groups %}
+  {% set st = g.st %}
+  {% set offset = st.utc_offset_min if st else 0 %}
+  <section class="card flush reveal">
+    <div class="card-head">
+      <div class="card-title">
+        {{ i.ico("station") }}
+        <div>
+          {% if st %}
+            <a class="q-station" href="{{ url_for('web.station', dev_eui=g.dev_eui) }}">{{ st.name or st.dev_eui }}</a>
+          {% else %}
+            <span class="q-station">{{ g.dev_eui }}</span>
+          {% endif %}
+          <div class="mono muted small">{{ g.dev_eui }}</div>
+        </div>
+      </div>
+      <div class="q-head-end">
+        {% if g.paused_s %}
+          <span class="chip st-scheduled">{{ i.ico("clock", "ico ico-sm") }}retenida {{ g.paused_s | ago(now_s) }}</span>
+        {% endif %}
+        <span class="chip">{{ g.frames | length }} en cola</span>
+        <form method="post" action="{{ url_for('web.queue_pause', dev_eui=g.dev_eui) }}" class="inline">
+          <input type="hidden" name="paused" value="{{ '0' if g.paused_s else '1' }}">
+          <button type="submit" class="small">
+            {{ i.ico('sync' if g.paused_s else 'clock', 'ico ico-sm') }}
+            {{ 'Reanudar' if g.paused_s else 'Retener' }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {% if g.paused_s %}
+      <p class="q-note">Cola retenida: los paquetes conservan su sitio y se siguen
+        encolando, pero no saldrá ninguno hasta que la reanudes.</p>
+    {% endif %}
+
+    {% if not g.frames %}
+      <p class="q-note">No queda nada en cola para esta estación.</p>
+    {% endif %}
+
+    <ol class="q-list">
+      {% for it in g.frames %}
+        <li class="q-item">
+          <details>
+            <summary>
+              <span class="q-caret" aria-hidden="true">{{ i.ico("chevron", "ico ico-sm") }}</span>
+              <span class="q-order">{{ loop.index }}</span>
+              <span class="chip chip-{{ it.kind }}">{{ it.kind }}</span>
+              {% if loop.first and not g.paused_s %}
+                <span class="chip ok">siguiente en salir</span>
+              {% endif %}
+              <span class="q-summary">{{ it.summary }}</span>
+              <span class="q-bytes">{{ it.bytes }} B</span>
+              <span class="q-when" title="{{ it.created_s | dt(offset) }}">{{ it.created_s | ago(now_s) }}</span>
+            </summary>
+            <div class="q-detail">
+              <dl>
+                <div><dt>Encolado</dt>
+                  <dd>{{ it.created_s | dt(offset) }} <span class="muted">({{ it.created_s | ago(now_s) }})</span></dd></div>
+                <div><dt>Tipo</dt><dd>{{ it.kind }}</dd></div>
+                <div><dt>Tamaño</dt><dd class="num">{{ it.bytes }} B · FPort {{ it.f_port }}</dd></div>
+              </dl>
+              {% if it.ta %}{{ strip.ta_strip(it.ta) }}{% endif %}
+              {% if it.fields %}
+                <dl class="q-fields">
+                  {% for k, v in it.fields.items() %}
+                    <div><dt class="mono">{{ k }}</dt><dd class="num">{{ v }}</dd></div>
+                  {% endfor %}
+                </dl>
+              {% endif %}
+              <div class="q-hex mono" title="{{ it.payload_hex }}">{{ it.payload_hex | hex_bytes }}</div>
+            </div>
+          </details>
+          <form method="post" action="{{ url_for('web.queue_cancel', item_id=it.id) }}" class="inline q-cancel">
+            <button type="submit" class="small danger">Cancelar</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endfor %}
+{% endif %}
+{% endblock %}

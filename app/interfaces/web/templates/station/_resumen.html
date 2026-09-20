@@ -48,7 +48,8 @@
     <div class="live-legend">
       <span><b class="tl-glyph up" aria-hidden="true">↑</b> estación → nube</span>
       <span><b class="tl-glyph down" aria-hidden="true">↓</b> nube → estación</span>
-      <span class="chip st-scheduled" id="live-pending" {{ 'hidden' if not live.pending }}>{{ live.pending }} en cola</span>
+      <a class="chip st-scheduled" id="live-pending" href="{{ url_for('web.queue') }}"
+         {{ 'hidden' if not live.pending }}>{{ live.pending }} en cola</a>
     </div>
     <ol class="timeline" id="timeline">
       {% for r in timeline %}
@@ -70,7 +71,8 @@
       <div class="card-head">
         <div class="card-title">{{ i.ico("chart") }}<h2>Pronóstico HS30 · 24 h</h2></div>
         {% if forecast %}
-          <span class="head-note">{{ forecast.run_ts_s | ago(now_s) }}</span>
+          <time class="head-note rel-time" data-ts="{{ forecast.run_ts_s }}"
+                >{{ forecast.run_ts_s | dt(st.utc_offset_min) }}</time>
         {% endif %}
       </div>
 

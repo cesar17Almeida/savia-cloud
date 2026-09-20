@@ -84,6 +84,9 @@ DL_FAILED = "failed"       # the push to TTN itself failed; nothing left the clo
 # The operator read the notice and put it away. Terminal like the two above, and it
 # keeps the detail it had, so the log still says what happened -- only the banner goes.
 DL_DISMISSED = "dismissed"
+# The operator pulled it out of the queue before the station ever heard it. Terminal;
+# the queue entry is gone but this row stays, so the history still says it existed.
+DL_CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,16 @@ class DownlinkRecord:
     def state(self) -> str:
         """First token of status: DL_QUEUED / DL_DELIVERED / DL_APPLIED / DL_FAILED."""
         return self.status.split(":", 1)[0].strip()
+
+
+@dataclass(frozen=True)
+class QueuedDownlink:
+    """One frame still waiting in the HTTP-link outbox for its station's RX window."""
+    id: int
+    dev_id: str
+    f_port: int
+    payload_hex: str
+    created_s: int
 
 
 @dataclass(frozen=True)

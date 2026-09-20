@@ -171,6 +171,7 @@ dd { margin: 0; text-align: right; min-width: 0; }
 .st-applied   { background: var(--ok-bg);   color: var(--accent-deep); border-color: transparent; }
 .st-failed    { background: var(--err-bg);  color: var(--error); border-color: transparent; }
 .st-dismissed { background: var(--idle-bg); color: var(--idle); border-color: transparent; }
+.st-cancelled { background: var(--err-bg); color: var(--error); border-color: transparent; }
 
 /* Message type */
 .chip-soil     { background: var(--ok-bg);   color: var(--accent-deep); border-color: transparent; }

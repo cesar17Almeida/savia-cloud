@@ -190,6 +190,14 @@
       t.textContent = ago(ts);
       t.title = clock(ts);
     });
+    // Header stamps: the server prints the absolute instant so two renders of a
+    // page are identical; here they become "hace 4 min" and stay current.
+    Array.prototype.forEach.call(document.querySelectorAll(".rel-time[data-ts]"), function (t) {
+      var ts = Number(t.getAttribute("data-ts"));
+      if (!ts) return;
+      t.textContent = ago(ts);
+      t.title = dateTime(ts);
+    });
   }
 
   // --- in-flight notice -------------------------------------------------------

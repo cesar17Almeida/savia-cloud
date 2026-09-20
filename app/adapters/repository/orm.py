@@ -86,3 +86,13 @@ class LinkOutboxRow(Base):
     payload_hex: Mapped[str] = mapped_column(String)
     created_s: Mapped[int] = mapped_column()
     delivered_s: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class LinkPauseRow(Base):
+    """A station whose outbox is held: its queue keeps filling, but nothing is
+    handed out until the operator resumes it. A row exists only while paused --
+    its own table rather than a column on `stations`, so the schema grows by
+    creation at startup and no deployment needs a migration."""
+    __tablename__ = "link_pause"
+    dev_id: Mapped[str] = mapped_column(String, primary_key=True)
+    paused_s: Mapped[int] = mapped_column()

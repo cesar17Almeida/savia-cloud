@@ -12,6 +12,7 @@ from ...domain.models import (
     DownlinkCommand,
     DownlinkRecord,
     ForecastRun,
+    QueuedDownlink,
     Session,
     SoilReading,
     Station,
@@ -295,6 +296,9 @@ class SqlLinkOutboxRepository(LinkOutboxRepository):
 
     def take_next(self, dev_id: str, now_s: int) -> DownlinkCommand | None:
         with self._sm() as s:
+            # A held queue answers nothing: the frames keep their place in line.
+            if s.get(orm.LinkPauseRow, dev_id) is not None:
+                return None
             row = s.scalars(
                 select(orm.LinkOutboxRow)
                 .where(orm.LinkOutboxRow.dev_id == dev_id,
@@ -329,3 +333,40 @@ class SqlLinkOutboxRepository(LinkOutboxRepository):
             ).all()
             # Oldest first so the newest delivery of a repeated payload wins.
             return {r.payload_hex: r.delivered_s for r in reversed(rows)}
+
+    def list_pending(self, dev_id: str | None = None) -> list[QueuedDownlink]:
+        with self._sm() as s:
+            q = (select(orm.LinkOutboxRow)
+                 .where(orm.LinkOutboxRow.delivered_s.is_(None))
+                 .order_by(orm.LinkOutboxRow.id.asc()))
+            if dev_id is not None:
+                q = q.where(orm.LinkOutboxRow.dev_id == dev_id)
+            return [QueuedDownlink(id=r.id, dev_id=r.dev_id, f_port=r.f_port,
+                                   payload_hex=r.payload_hex, created_s=r.created_s)
+                    for r in s.scalars(q).all()]
+
+    def remove(self, item_id: int) -> QueuedDownlink | None:
+        """The queue entry goes; the downlink_log row is what keeps the history."""
+        with self._sm() as s:
+            row = s.get(orm.LinkOutboxRow, item_id)
+            if row is None or row.delivered_s is not None:
+                return None
+            gone = QueuedDownlink(id=row.id, dev_id=row.dev_id, f_port=row.f_port,
+                                  payload_hex=row.payload_hex, created_s=row.created_s)
+            s.delete(row)
+            s.commit()
+            return gone
+
+    def set_paused(self, dev_id: str, paused: bool, now_s: int) -> None:
+        with self._sm() as s:
+            row = s.get(orm.LinkPauseRow, dev_id)
+            if paused and row is None:
+                s.add(orm.LinkPauseRow(dev_id=dev_id, paused_s=now_s))
+            elif not paused and row is not None:
+                s.delete(row)
+            s.commit()
+
+    def paused(self) -> dict[str, int]:
+        with self._sm() as s:
+            return {r.dev_id: r.paused_s
+                    for r in s.scalars(select(orm.LinkPauseRow)).all()}

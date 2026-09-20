@@ -16,7 +16,11 @@
         {{ 'En línea' if online else 'Sin señal reciente' }}
       </span>
       <span aria-hidden="true">·</span>
-      <span>último uplink {{ st.last_uplink_at | ago(now_s) }}</span>
+      {# Absolute on the server so a reload is deterministic; live.js turns it
+         relative and keeps it that way without another request. #}
+      <span>último uplink
+        <time class="rel-time" data-ts="{{ st.last_uplink_at or '' }}"
+              >{{ st.last_uplink_at | dt(st.utc_offset_min) }}</time></span>
       <span aria-hidden="true">·</span>
       <span class="mono">{{ st.dev_eui }}</span>
     </p>
@@ -56,6 +60,8 @@
         <div class="lb-track" aria-hidden="true">
           <span>nube</span><span class="lb-line"><i></i></span><span>estación</span>
         </div>
+        {# Static: live.js only rewrites the title, the detail and the meta. #}
+        <a class="lb-link" href="{{ url_for('web.queue') }}">Ver la cola</a>
       </div>
     </div>
   </div>

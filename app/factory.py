@@ -32,6 +32,7 @@ from .application.services import (
     ConfigDownlinkService,
     DailyCronService,
     IngestUplinkService,
+    LinkQueueService,
     LinkUplinkService,
     PanelService,
     RunCloudInferenceService,
@@ -103,6 +104,8 @@ def create_app(settings: Settings | None = None) -> Flask:
         link_uplink=(LinkUplinkService(ingest_uplink, stations, link_outbox, dl_log)
                      if link_outbox else None),
         link_outbox=link_outbox,
+        link_queue=(LinkQueueService(link_outbox, dl_log, stations)
+                    if link_outbox else None),
     )
 
     # Seed the operator; without ADMIN_PASSWORD it must change the default first.
